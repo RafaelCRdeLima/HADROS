@@ -306,11 +306,15 @@ int main(int argc, char* argv[])
 
     // Extract short model tag from sigma filename for metadata/output labels.
     std::string sigma_model = "GBW";
-    if (
-        sigma_path.find("PDF_reference") != std::string::npos
-        || sigma_path.find("CTW_reference") != std::string::npos
+    if (sigma_path.find("CTW_reference") != std::string::npos) {
+        sigma_model = "CTW_reference";
+    } else if (sigma_path.find("CSMS_reference") != std::string::npos) {
+        sigma_model = "CSMS_reference";
+    } else if (
+        sigma_path.find("literature_powerlaw_scale") != std::string::npos
+        || sigma_path.find("gandhi_like_fit") != std::string::npos
     ) {
-        sigma_model = "PDF_reference";
+        sigma_model = "literature_powerlaw_scale";
     } else if (sigma_path.find("IIM") != std::string::npos) {
         sigma_model = "IIM";
     } else if (sigma_path.find("GBW") != std::string::npos) {

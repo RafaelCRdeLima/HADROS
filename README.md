@@ -133,7 +133,8 @@ charged-current neutrino-nucleon cross-section table:
 
 - `GBW`
 - `IIM`
-- `PDF_reference`
+- `literature_powerlaw_scale`
+- `CTW_reference`
 
 Run:
 
@@ -145,15 +146,17 @@ Outputs:
 
 ```text
 output/dis_validation/dis_table_audit.md
+output/dis_validation/reference_model_audit.md
 output/dis_validation/sigma_model_comparison.csv
 output/dis_validation/dis_observable_comparison.csv
 output/dis_validation/dis_model_validation_summary.md
 plots/dis_validation/
 ```
 
-The local `PDF_reference` table is a documented literature-scale charged-current
-reference curve for controlled comparison. It is not a full modern PDF
-uncertainty band. Details are in:
+`CTW_reference` uses the published central `nu N` charged-current values from
+Connolly, Thorne & Waters, Phys. Rev. D 83, 113009, Table I. The old approximate
+power-law curve is retained only as `literature_powerlaw_scale`, not as a PDF
+reference. Details are in:
 
 ```text
 docs/dis_model_validation.md

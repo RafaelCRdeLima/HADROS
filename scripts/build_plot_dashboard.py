@@ -79,7 +79,7 @@ def categorize(path: Path) -> tuple[str, str, str, str]:
     if "dis_validation" in rel or "sigma_nun_model" in name or "dis_model" in name:
         return (
             "DIS model validation",
-            "GBW/IIM/PDF-reference cross-section validation",
+            "GBW/IIM/CTW cross-section validation",
             describe_dis_validation(name),
             "make validate_dis_models",
         )
@@ -264,7 +264,7 @@ def describe_spectral(name: str) -> str:
 
 def describe_dis_validation(name: str) -> str:
     if "sigma_nun_model_comparison" in name:
-        return "Direct comparison of GBW, IIM, and PDF-reference UHE nuN cross sections."
+        return "Direct comparison of GBW, IIM, literature-scale, and CTW-reference UHE nuN cross sections."
     if "sigma_nun_model_ratios" in name:
         return "Cross-section ratios between DIS models as a function of neutrino energy."
     if "observed_spectrum" in name:
@@ -274,7 +274,7 @@ def describe_dis_validation(name: str) -> str:
     if "uhe_image_dis_model_comparison" in name:
         return "Side-by-side UHE image comparison using identical astrophysics and different DIS tables."
     if "uhe_image_dis_model_ratio" in name:
-        return "UHE image ratio relative to the PDF-reference DIS model."
+        return "UHE image ratio relative to the CTW-reference DIS model."
     return "DIS model validation output."
 
 

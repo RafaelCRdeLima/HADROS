@@ -1,10 +1,10 @@
-# model PDF_reference
+# model literature_powerlaw_scale
 # channel charged_current_neutrino_nucleon
 # reference Gandhi_Quigg_Reno_Sarcevic_style_powerlaw
 # formula sigma_cm2 = A * (E_GeV)^B
 # A_cm2 5.53000000e-36
 # B 3.63000000e-01
-# notes Approximate PDF-based UHE reference curve for controlled comparisons; not a full PDF uncertainty table.
+# notes Approximate literature-scale curve retained only as a scale check; not a PDF reference table.
 # Enu_GeV sigma_GeV_minus2 sigma_cm2
 1.0000000000e+03 1.7432201162e-07 6.7877389483e-35
 1.0884000000e+03 1.7976554941e-07 6.9996990624e-35

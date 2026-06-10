@@ -28,8 +28,39 @@ IMAGE_DIR = ROOT / "output" / "images"
 RAY_DIR = ROOT / "output" / "rays"
 
 GEV_MINUS2_TO_CM2 = 0.389379338e-27
-PDF_REF_A_CM2 = 5.53e-36
-PDF_REF_B = 0.363
+POWERLAW_SCALE_A_CM2 = 5.53e-36
+POWERLAW_SCALE_B = 0.363
+
+CTW_NU_CC_TABLE = np.array(
+    [
+        [1.0e4, 0.48e-34],
+        [2.5e4, 0.93e-34],
+        [6.0e4, 0.16e-33],
+        [1.0e5, 0.22e-33],
+        [2.5e5, 0.36e-33],
+        [6.0e5, 0.56e-33],
+        [1.0e6, 0.72e-33],
+        [2.5e6, 0.11e-32],
+        [6.0e6, 0.16e-32],
+        [1.0e7, 0.20e-32],
+        [2.5e7, 0.29e-32],
+        [6.0e7, 0.40e-32],
+        [1.0e8, 0.48e-32],
+        [2.5e8, 0.67e-32],
+        [6.0e8, 0.91e-32],
+        [1.0e9, 0.11e-31],
+        [2.5e9, 0.14e-31],
+        [6.0e9, 0.19e-31],
+        [1.0e10, 0.22e-31],
+        [2.5e10, 0.29e-31],
+        [6.0e10, 0.37e-31],
+        [1.0e11, 0.43e-31],
+        [2.5e11, 0.56e-31],
+        [6.0e11, 0.72e-31],
+        [1.0e12, 0.83e-31],
+    ],
+    dtype=float,
+)
 
 
 @dataclass(frozen=True)
@@ -108,20 +139,42 @@ def log_interp(x: np.ndarray, xp: np.ndarray, fp: np.ndarray) -> np.ndarray:
     return np.exp(np.interp(np.log(x), np.log(xp), np.log(fp)))
 
 
-def write_pdf_reference(grid: np.ndarray) -> Path:
-    out = DATA_DIR / "sigma_nuN_CC_PDF_reference.dat"
-    sigma_cm2 = PDF_REF_A_CM2 * np.power(grid, PDF_REF_B)
+def write_literature_powerlaw_scale(grid: np.ndarray) -> Path:
+    out = DATA_DIR / "sigma_nuN_CC_literature_powerlaw_scale.dat"
+    sigma_cm2 = POWERLAW_SCALE_A_CM2 * np.power(grid, POWERLAW_SCALE_B)
     sigma_gev2 = sigma_cm2 / GEV_MINUS2_TO_CM2
     with out.open("w") as f:
-        f.write("# model PDF_reference\n")
+        f.write("# model literature_powerlaw_scale\n")
         f.write("# channel charged_current_neutrino_nucleon\n")
         f.write("# reference Gandhi_Quigg_Reno_Sarcevic_style_powerlaw\n")
         f.write("# formula sigma_cm2 = A * (E_GeV)^B\n")
-        f.write(f"# A_cm2 {PDF_REF_A_CM2:.8e}\n")
-        f.write(f"# B {PDF_REF_B:.8e}\n")
-        f.write("# notes Approximate PDF-based UHE reference curve for controlled comparisons; not a full PDF uncertainty table.\n")
+        f.write(f"# A_cm2 {POWERLAW_SCALE_A_CM2:.8e}\n")
+        f.write(f"# B {POWERLAW_SCALE_B:.8e}\n")
+        f.write("# notes Approximate literature-scale curve retained only as a scale check; not a PDF reference table.\n")
         f.write("# Enu_GeV sigma_GeV_minus2 sigma_cm2\n")
         for e, sg, sc in zip(grid, sigma_gev2, sigma_cm2):
+            f.write(f"{e:.10e} {sg:.10e} {sc:.10e}\n")
+    return out
+
+
+def write_ctw_reference() -> Path:
+    out = DATA_DIR / "sigma_nuN_CC_CTW_reference.dat"
+    energies = CTW_NU_CC_TABLE[:, 0]
+    sigma_cm2 = CTW_NU_CC_TABLE[:, 1]
+    sigma_gev2 = sigma_cm2 / GEV_MINUS2_TO_CM2
+    with out.open("w") as f:
+        f.write("# model CTW_reference\n")
+        f.write("# channel charged_current_neutrino_nucleon\n")
+        f.write("# neutrino_status neutrino_not_antineutrino\n")
+        f.write("# target isoscalar_nucleon\n")
+        f.write("# source Connolly_Thorne_Waters_PhysRevD83_113009_Table_I\n")
+        f.write("# arxiv https://arxiv.org/abs/1102.0691\n")
+        f.write("# pdf_set MSTW_2008\n")
+        f.write("# energy_range_GeV 1e4 1e12\n")
+        f.write("# values table_published_central_values\n")
+        f.write("# notes Table I nuN CC central cross sections; not NC and not antineutrino.\n")
+        f.write("# Enu_GeV sigma_GeV_minus2 sigma_cm2\n")
+        for e, sg, sc in zip(energies, sigma_gev2, sigma_cm2):
             f.write(f"{e:.10e} {sg:.10e} {sc:.10e}\n")
     return out
 
@@ -155,15 +208,25 @@ def audit_tables(models: list[SigmaModel]) -> None:
     lines.extend(
         [
             "",
-            "## PDF_reference provenance",
+            "## Reference-model provenance",
             "",
-            "`PDF_reference` is an approximate charged-current PDF-based UHE reference curve, tabulated on the same energy grid as the local GBW/IIM tables:",
+            "`CTW_reference` is the published central charged-current nuN table from Connolly, Thorne & Waters, Phys. Rev. D 83, 113009, Table I:",
+            "",
+            "- URL: https://arxiv.org/abs/1102.0691",
+            "- PDF set: MSTW 2008.",
+            "- Status: neutrino, not antineutrino.",
+            "- Channel: charged current only.",
+            "- Energy range: 1e4 <= E_nu/GeV <= 1e12.",
+            "- Units: cm^2, converted internally to GeV^-2 for the second table column.",
+            "- Values: published table values, not digitized from a plot.",
+            "",
+            "`literature_powerlaw_scale` is retained only as an old scale-check curve:",
             "",
             "```text",
-            f"sigma_CC(E) = {PDF_REF_A_CM2:.3e} * (E_GeV)^{PDF_REF_B:.3f} cm^2",
+            f"sigma_CC(E) = {POWERLAW_SCALE_A_CM2:.3e} * (E_GeV)^{POWERLAW_SCALE_B:.3f} cm^2",
             "```",
             "",
-            "It is used here as a documented literature-scale reference curve for robustness tests. It should not be presented as a full CTW/CSMS uncertainty-band replacement.",
+            "It must not be called `PDF_reference` in paper text.",
             "",
             "Reference context:",
             "",
@@ -173,6 +236,52 @@ def audit_tables(models: list[SigmaModel]) -> None:
         ]
     )
     (OUTPUT_DIR / "dis_table_audit.md").write_text("\n".join(lines) + "\n")
+
+
+def write_reference_model_audit(models: list[SigmaModel]) -> None:
+    ctw = load_sigma_table(next(model.path for model in models if model.name == "CTW_reference"))
+    lines = [
+        "# Reference Model Audit",
+        "",
+        "## Implemented paper-level reference",
+        "",
+        "- Model name: `CTW_reference`.",
+        "- Exact source: Connolly, Thorne & Waters, Phys. Rev. D 83, 113009, Table I.",
+        "- Citation: Amy Connolly, Robert S. Thorne, David Waters, Calculation of High Energy Neutrino-Nucleon Cross Sections and Uncertainties Using the MSTW Parton Distribution Functions and Implications for Future Experiments.",
+        "- URL: https://arxiv.org/abs/1102.0691",
+        "- Values used: table values, not plot digitization.",
+        "- Energy range: `1e4 <= E_nu/GeV <= 1e12`.",
+        "- Units in source: `cm^2`.",
+        "- Units in HADROS table: `Enu_GeV`, `sigma_GeV_minus2`, `sigma_cm2`.",
+        "- Channel: charged current.",
+        "- Particle: neutrino, not antineutrino.",
+        "- Target: isoscalar nucleon.",
+        "- PDF set/theory: MSTW 2008 PDFs, Standard Model DIS calculation.",
+        "",
+        "## Implemented data range",
+        "",
+        f"- Rows: {len(ctw)}.",
+        f"- Minimum energy: {ctw[0,0]:.6e} GeV.",
+        f"- Maximum energy: {ctw[-1,0]:.6e} GeV.",
+        f"- sigma_CC(Emin): {ctw[0,2]:.6e} cm^2.",
+        f"- sigma_CC(Emax): {ctw[-1,2]:.6e} cm^2.",
+        "",
+        "## Limitations",
+        "",
+        "- This is the CTW central-value table only; it does not include CTW PDF uncertainty bands.",
+        "- It is CC-only; NC is not included in the opacity comparison.",
+        "- It is neutrino-only; antineutrino values are tabulated separately in CTW Table II and are not used here.",
+        "- HADROS uses log-log interpolation between the published table points and no extrapolation outside the table range.",
+        "- Comparisons involving `CTW_reference` are restricted to the common energy range of all active tables.",
+        "",
+        "## Old approximate scale curve",
+        "",
+        "- Model name: `literature_powerlaw_scale`.",
+        "- Formula: `sigma_CC(E) = 5.53e-36 * E_GeV^0.363 cm^2`.",
+        "- Purpose: legacy scale check only.",
+        "- It must not be described as `PDF_reference` or as a paper-level PDF validation.",
+    ]
+    (OUTPUT_DIR / "reference_model_audit.md").write_text("\n".join(lines) + "\n")
 
 
 def plot_sigma_comparison(models: list[SigmaModel]) -> None:
@@ -187,29 +296,22 @@ def plot_sigma_comparison(models: list[SigmaModel]) -> None:
 
     with (OUTPUT_DIR / "sigma_model_comparison.csv").open("w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(
-            [
-                "E_GeV",
-                "sigma_GBW_cm2",
-                "sigma_IIM_cm2",
-                "sigma_PDF_reference_cm2",
-                "GBW_over_PDF_reference",
-                "IIM_over_PDF_reference",
-                "IIM_over_GBW",
-            ]
-        )
+        model_names = [model.name for model in models]
+        header = ["E_GeV"]
+        header.extend(f"sigma_{name}_cm2" for name in model_names)
+        header.extend(f"{name}_over_CTW_reference" for name in model_names if name != "CTW_reference")
+        header.append("IIM_over_GBW")
+        writer.writerow(header)
         for i, e in enumerate(energies):
-            writer.writerow(
-                [
-                    f"{e:.10e}",
-                    f"{sigma['GBW'][i]:.10e}",
-                    f"{sigma['IIM'][i]:.10e}",
-                    f"{sigma['PDF_reference'][i]:.10e}",
-                    f"{sigma['GBW'][i] / sigma['PDF_reference'][i]:.10e}",
-                    f"{sigma['IIM'][i] / sigma['PDF_reference'][i]:.10e}",
-                    f"{sigma['IIM'][i] / sigma['GBW'][i]:.10e}",
-                ]
+            row = [f"{e:.10e}"]
+            row.extend(f"{sigma[name][i]:.10e}" for name in model_names)
+            row.extend(
+                f"{sigma[name][i] / sigma['CTW_reference'][i]:.10e}"
+                for name in model_names
+                if name != "CTW_reference"
             )
+            row.append(f"{sigma['IIM'][i] / sigma['GBW'][i]:.10e}")
+            writer.writerow(row)
 
     plt.figure(figsize=(7.2, 5.0))
     for name, values in sigma.items():
@@ -224,8 +326,13 @@ def plot_sigma_comparison(models: list[SigmaModel]) -> None:
     plt.close()
 
     plt.figure(figsize=(7.2, 5.0))
-    plt.semilogx(energies, sigma["GBW"] / sigma["PDF_reference"], label="GBW / PDF_reference")
-    plt.semilogx(energies, sigma["IIM"] / sigma["PDF_reference"], label="IIM / PDF_reference")
+    plt.semilogx(energies, sigma["GBW"] / sigma["CTW_reference"], label="GBW / CTW_reference")
+    plt.semilogx(energies, sigma["IIM"] / sigma["CTW_reference"], label="IIM / CTW_reference")
+    plt.semilogx(
+        energies,
+        sigma["literature_powerlaw_scale"] / sigma["CTW_reference"],
+        label="literature_powerlaw_scale / CTW_reference",
+    )
     plt.semilogx(energies, sigma["IIM"] / sigma["GBW"], label="IIM / GBW")
     plt.axhline(1.0, color="0.3", lw=0.8)
     plt.xlabel(r"$E_\nu$ [GeV]")
@@ -406,8 +513,8 @@ def image_grid(path: Path, column: int = 6) -> np.ndarray:
 
 def plot_image_comparison(rows: list[dict[str, str]]) -> None:
     row_order = ["fiducial_uhe_default", "collapsar_ndaf_like"]
-    col_order = ["GBW", "IIM", "PDF_reference"]
-    fig, axes = plt.subplots(len(row_order), len(col_order), figsize=(10.5, 6.8))
+    col_order = ["GBW", "IIM", "literature_powerlaw_scale", "CTW_reference"]
+    fig, axes = plt.subplots(len(row_order), len(col_order), figsize=(13.5, 6.8))
     for r, regime in enumerate(row_order):
         images = []
         for model in col_order:
@@ -427,21 +534,21 @@ def plot_image_comparison(rows: list[dict[str, str]]) -> None:
     fig.savefig(PLOT_DIR / "uhe_image_dis_model_comparison.png", dpi=180)
     plt.close(fig)
 
-    fig, axes = plt.subplots(len(row_order), 2, figsize=(7.2, 6.8))
+    fig, axes = plt.subplots(len(row_order), 3, figsize=(10.5, 6.8))
     for r, regime in enumerate(row_order):
-        pdf_entry = next(row for row in rows if row["regime"] == regime and row["DIS_model"] == "PDF_reference")
-        pdf = image_grid(ROOT / pdf_entry["image_path"], 6)
-        for c, model in enumerate(["GBW", "IIM"]):
+        ref_entry = next(row for row in rows if row["regime"] == regime and row["DIS_model"] == "CTW_reference")
+        ref = image_grid(ROOT / ref_entry["image_path"], 6)
+        for c, model in enumerate(["GBW", "IIM", "literature_powerlaw_scale"]):
             entry = next(row for row in rows if row["regime"] == regime and row["DIS_model"] == model)
             img = image_grid(ROOT / entry["image_path"], 6)
-            ratio = np.divide(img, pdf, out=np.ones_like(img), where=pdf > 0)
+            ratio = np.divide(img, ref, out=np.ones_like(img), where=ref > 0)
             ax = axes[r, c]
             im = ax.imshow(np.clip(ratio, 0.0, 2.0), origin="lower", cmap="coolwarm", vmin=0.0, vmax=2.0)
-            ax.set_title(f"{regime}\n{model} / PDF_reference", fontsize=9)
+            ax.set_title(f"{regime}\n{model} / CTW_reference", fontsize=9)
             ax.set_xticks([])
             ax.set_yticks([])
     fig.colorbar(im, ax=axes.ravel().tolist(), shrink=0.75, label="intensity ratio")
-    fig.suptitle("UHE image ratios relative to PDF_reference")
+    fig.suptitle("UHE image ratios relative to CTW_reference")
     fig.savefig(PLOT_DIR / "uhe_image_dis_model_ratio.png", dpi=180)
     plt.close(fig)
 
@@ -534,12 +641,14 @@ def write_summary(rows: list[dict[str, str]]) -> None:
         )
     lines.extend(["", "## Interpretation", ""])
     for regime, model_rows in by_regime.items():
-        pdf_tau = float(model_rows["PDF_reference"]["mean_tau"])
+        ctw_tau = float(model_rows["CTW_reference"]["mean_tau"])
         gbw_tau = float(model_rows["GBW"]["mean_tau"])
         iim_tau = float(model_rows["IIM"]["mean_tau"])
+        scale_tau = float(model_rows["literature_powerlaw_scale"]["mean_tau"])
         lines.append(
-            f"- `{regime}`: mean_tau ratios are GBW/PDF={gbw_tau / pdf_tau:.3e} "
-            f"and IIM/PDF={iim_tau / pdf_tau:.3e}."
+            f"- `{regime}`: mean_tau ratios are GBW/CTW={gbw_tau / ctw_tau:.3e}, "
+            f"IIM/CTW={iim_tau / ctw_tau:.3e}, and "
+            f"literature_powerlaw_scale/CTW={scale_tau / ctw_tau:.3e}."
         )
     lines.extend(
         [
@@ -548,12 +657,13 @@ def write_summary(rows: list[dict[str, str]]) -> None:
             "",
             "- The same ray cache, density background, source prescription, observer, spin, and energy were used inside each regime.",
             "- Differences in tau and P_surv in this suite are therefore DIS-table effects.",
-            "- The comparison can support statements about sensitivity to the assumed UHE neutrino-nucleon cross section.",
+            "- The CTW comparison can support statements about sensitivity to the assumed UHE neutrino-nucleon cross section relative to a published MSTW-2008 Standard Model DIS calculation.",
             "",
             "## Claims to avoid",
             "",
-            "- Do not present `PDF_reference` as a full modern PDF uncertainty band.",
-            "- Do not claim CC+NC or neutrino+antineutrino coverage from these tables; the files used here are charged-current scalar tables.",
+            "- Do not present `literature_powerlaw_scale` as a PDF reference.",
+            "- Do not claim CTW PDF uncertainty-band coverage; this implementation uses the central Table I values only.",
+            "- Do not claim CC+NC or neutrino+antineutrino coverage from these tables; the propagation files used here are charged-current scalar tables.",
             "- Do not claim xF3 status from the table alone; it is not represented as a separate column.",
         ]
     )
@@ -563,13 +673,16 @@ def write_summary(rows: list[dict[str, str]]) -> None:
 def main() -> None:
     ensure_dirs()
     gbw = load_sigma_table(DATA_DIR / "sigma_nuN_CC_GBW.dat")
-    pdf_path = write_pdf_reference(gbw[:, 0])
+    powerlaw_path = write_literature_powerlaw_scale(gbw[:, 0])
+    ctw_path = write_ctw_reference()
     models = [
         SigmaModel("GBW", DATA_DIR / "sigma_nuN_CC_GBW.dat"),
         SigmaModel("IIM", DATA_DIR / "sigma_nuN_CC_IIM.dat"),
-        SigmaModel("PDF_reference", pdf_path),
+        SigmaModel("literature_powerlaw_scale", powerlaw_path),
+        SigmaModel("CTW_reference", ctw_path),
     ]
     audit_tables(models)
+    write_reference_model_audit(models)
     plot_sigma_comparison(models)
     rows = run_observable_suite(models)
     plot_spectral_propagation(rows, models)

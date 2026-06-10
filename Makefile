@@ -360,7 +360,7 @@ help:
 	@echo "  make validate_medium_cuda NTHREADS=2 # medium CPU/CUDA image comparison"
 	@echo "  make validate_source_plots          # UHE source morphology diagnostics"
 	@echo "  make validate_spectra               # UHE spectral model validation"
-	@echo "  make validate_dis_models NTHREADS=2 # GBW/IIM/PDF_reference DIS validation"
+	@echo "  make validate_dis_models NTHREADS=2 # GBW/IIM/CTW DIS validation"
 	@echo "  make validate_mev_physics           # MeV emissivity/opacity validation"
 	@echo "  make validate_mev_degeneracy        # MeV electron degeneracy diagnostics"
 	@echo "  make validate_mev_opacity_components # MeV opacity decomposition diagnostics"
