@@ -797,6 +797,62 @@ make validate_medium_cuda NTHREADS=2 \
 
 \subsection{Running Images}
 
+End-to-end cached UHE run, written as separate steps:
+
+\begin{verbatim}
+# 1) Compile the CPU geodesic and cached-image programs.
+make build NTHREADS=2
+
+# 2) Generate a Kerr geodesic cache.
+#    This writes output/rays/kerr_geodesics.bin.
+make kerr-geodesics \
+  CAM_NX=64 CAM_NY=64 CAM_R_MAX_RG=80 CAM_STEP=0.01 \
+  ASPIN=0.9 CAM_THETA_DEG=80 NTHREADS=2
+
+# 3) Reuse that cache to compute tau, P_surv,
+#    UHE intensity, MeV diagnostics, and the image data table.
+#    This also calls the plotting script at the end.
+make image-from-cache \
+  ENU=1e11 \
+  DENSITY_PROFILE=powerlaw_funnel_envelope \
+  FUNNEL_DEPLETION=1.0 FUNNEL_THETA_DEG=20 \
+  ENVELOPE_RHO0=1e-4 \
+  SOURCE_MODEL=funnel_wall \
+  TORUS_RHO0=1e0 \
+  NTHREADS=2
+
+# 4) Replot an already computed image without recomputing
+#    geodesics or tau. Keep the same tags so the script
+#    finds the intended data file.
+DENSITY_PROFILE=powerlaw_funnel_envelope SOURCE_MODEL=funnel_wall \
+  make plot-kerr-image ENU=1e11 TORUS_RHO0=1e0
+\end{verbatim}
+
+The cache in step 2 depends only on the Kerr/camera setup: spin, observer
+position, field of view, resolution, maximum radius, and geodesic step. Step 3
+can be repeated with different neutrino energy, density profile, source model,
+or DIS table without recomputing the geodesics, as long as the camera geometry
+is unchanged. The output image tables are written to \texttt{output/images/},
+and the plots are written under \texttt{plots/rho0\_torus\_*/ENU*/}.
+
+Equivalent one-target shortcut:
+
+\begin{verbatim}
+make kerr-criar-cache \
+  ENU=1e11 \
+  ASPIN=0.9 CAM_THETA_DEG=80 CAM_NX=64 CAM_NY=64 \
+  CAM_R_MAX_RG=80 CAM_STEP=0.01 \
+  DENSITY_PROFILE=powerlaw_funnel_envelope \
+  FUNNEL_DEPLETION=1.0 FUNNEL_THETA_DEG=20 \
+  ENVELOPE_RHO0=1e-4 \
+  SOURCE_MODEL=funnel_wall \
+  TORUS_RHO0=1e0 \
+  NTHREADS=2
+\end{verbatim}
+
+\texttt{kerr-criar-cache} runs the same chain in one target: generate
+geodesics, compute the cached image/optical depths, and plot the result.
+
 \begin{verbatim}
 make image-from-cache ENU=1e11 DENSITY_PROFILE=gaussian NTHREADS=2
 make image-from-cache SPECTRAL_MODEL=powerlaw \
