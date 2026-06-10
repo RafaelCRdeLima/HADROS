@@ -1,5 +1,5 @@
 # =========================================================
-# BH_Torus Makefile
+# HADROS Makefile
 # Kerr ray tracing + DIS optical depth + radiative transfer
 # =========================================================
 

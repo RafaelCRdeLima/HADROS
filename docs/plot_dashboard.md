@@ -1,6 +1,6 @@
 # Plot Dashboard
 
-The plot dashboard is a static HTML index for BH_Torus_RTX visual products. It
+The plot dashboard is a static HTML index for HADROS visual products. It
 is an output-management tool only. It does not run simulations and does not
 modify the DIS cross sections, optical-depth physics, Kerr geodesics, density
 models, UHE source models, UHE spectral models, or MeV physics.

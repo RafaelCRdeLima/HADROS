@@ -2,7 +2,7 @@
 
 ## Motivation
 
-This export is intended for visual inspection of the current BH_Torus_RTX
+This export is intended for visual inspection of the current HADROS
 semi-analytic density and UHE source prescriptions in ParaView. It converts
 the existing axisymmetric fields into a regular 3D Cartesian sampling so that
 volume rendering, slices, and isosurfaces can be inspected interactively.
@@ -87,7 +87,7 @@ NaN or Inf values.
 Example:
 
 ```bash
-make -C BH_Torus_RTX paraview_fields \
+make -C HADROS paraview_fields \
   DENSITY_PROFILE=powerlaw_funnel_envelope \
   SOURCE_MODEL=funnel_wall \
   PARAVIEW_NX=64 PARAVIEW_NY=64 PARAVIEW_NZ=64 \
@@ -107,7 +107,7 @@ OMP_NUM_THREADS
 Open:
 
 ```text
-BH_Torus_RTX/output/paraview/bh_torus_fields.vtk
+HADROS/output/paraview/bh_torus_fields.vtk
 ```
 
 Suggested visualizations:

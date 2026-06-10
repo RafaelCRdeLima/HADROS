@@ -1,7 +1,14 @@
-# BH_Torus_RTX
+<p align="center">
+  <img src="assets/Hadros_logo.png" alt="HADROS logo" width="520">
+</p>
 
-Kerr ray tracing plus DIS optical-depth and radiative-transfer post-processing
-for controlled UHE neutrino opacity studies.
+# HADROS
+
+**High-energy Astrophysical DIS Radiation and Observation Simulator**
+
+HADROS combines Kerr ray tracing, DIS optical-depth calculations, and
+radiative-transfer post-processing for controlled high-energy astrophysical
+neutrino opacity studies.
 
 ## Density Background Framework
 
