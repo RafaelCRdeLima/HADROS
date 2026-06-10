@@ -70,12 +70,21 @@ rho_tag = rho_folder_tag(Torus_Rho0)
 density_profile = os.environ.get("DENSITY_PROFILE", "").strip()
 source_model = os.environ.get("SOURCE_MODEL", "").strip()
 spectral_model = os.environ.get("SPECTRAL_MODEL", "").strip()
+mev_spectral_mode = os.environ.get("MEV_SPECTRAL_MODE", "").strip()
+mev_e_min = float(os.environ.get("MEV_E_MIN_MEV", "0.0"))
+mev_e_max = float(os.environ.get("MEV_E_MAX_MEV", "0.0"))
 
 run_tag = (
     f"Enu_{energy_tag}"
     f"_MeVEnu_{mev_energy_tag}"
     f"_MeVNorm_{mev_norm_tag}"
     f"_CamTheta_{cam_theta_tag}"
+)
+
+run_tag_without_camera = (
+    f"Enu_{energy_tag}"
+    f"_MeVEnu_{mev_energy_tag}"
+    f"_MeVNorm_{mev_norm_tag}"
 )
 
 profile_source_tag = ""
@@ -87,6 +96,13 @@ if source_model and source_model != "inner_ring":
 spectrum_tag = ""
 if spectral_model and spectral_model != "monochromatic":
     spectrum_tag = f"_Spectrum_{spectral_model}"
+
+mev_spectrum_tag = ""
+if mev_spectral_mode and mev_spectral_mode != "monochromatic":
+    mev_spectrum_tag = (
+        f"_MeVSpectrum_{mev_spectral_mode}"
+        f"_E{tag_sci(mev_e_min)}_{tag_sci(mev_e_max)}"
+    )
 
 KIMG_MAGIC = 0x4B494D47
 KIMG_HEADER = struct.Struct("<7i4d")
@@ -139,6 +155,14 @@ def load_kerr_image(path):
 
 
 input_candidates = [
+    Path(f"output/images/kerr_image_cuda_cache_GBW_{rho_tag}{profile_source_tag}{spectrum_tag}_{run_tag_without_camera}{mev_spectrum_tag}_CamTheta_{cam_theta_tag}.bin"),
+    Path(f"output/images/kerr_image_cuda_cache_GBW_{rho_tag}{profile_source_tag}{spectrum_tag}_{run_tag_without_camera}{mev_spectrum_tag}_CamTheta_{cam_theta_tag}.dat"),
+    Path(f"output/images/kerr_image_cuda_cache_{rho_tag}{profile_source_tag}{spectrum_tag}_{run_tag_without_camera}{mev_spectrum_tag}_CamTheta_{cam_theta_tag}.bin"),
+    Path(f"output/images/kerr_image_cuda_cache_{rho_tag}{profile_source_tag}{spectrum_tag}_{run_tag_without_camera}{mev_spectrum_tag}_CamTheta_{cam_theta_tag}.dat"),
+    Path(f"output/images/kerr_image_cuda_cache_GBW_{rho_tag}{profile_source_tag}{spectrum_tag}_{run_tag}{mev_spectrum_tag}.bin"),
+    Path(f"output/images/kerr_image_cuda_cache_GBW_{rho_tag}{profile_source_tag}{spectrum_tag}_{run_tag}{mev_spectrum_tag}.dat"),
+    Path(f"output/images/kerr_image_cuda_cache_{rho_tag}{profile_source_tag}{spectrum_tag}_{run_tag}{mev_spectrum_tag}.bin"),
+    Path(f"output/images/kerr_image_cuda_cache_{rho_tag}{profile_source_tag}{spectrum_tag}_{run_tag}{mev_spectrum_tag}.dat"),
     Path(f"output/images/kerr_image_cuda_cache_GBW_{rho_tag}{profile_source_tag}{spectrum_tag}_{run_tag}.bin"),
     Path(f"output/images/kerr_image_cuda_cache_GBW_{rho_tag}{profile_source_tag}{spectrum_tag}_{run_tag}.dat"),
     Path(f"output/images/kerr_image_cuda_cache_{rho_tag}{profile_source_tag}{spectrum_tag}_{run_tag}.bin"),
