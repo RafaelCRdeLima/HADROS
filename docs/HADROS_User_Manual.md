@@ -630,6 +630,408 @@ This is a 3D Cartesian sampling of an axisymmetric model. It is not a fully 3D
 hydrodynamical simulation. HADROS does not export a fake local tau field;
 opacity requires a line-of-sight or radial integration convention.
 
+### 2.10 Implementation-level equations for the remaining modules
+
+This section is intentionally more technical. It connects the physical
+discussion above to the expressions actually evaluated by the current code.
+The purpose is pedagogical: a student should be able to reproduce the main
+calculations on paper before reading the C++ source.
+
+#### 2.10.1 Density morphologies
+
+The density module evaluates a raw density and then applies the floor:
+
+```text
+rho(r,theta) = max[rho_raw(r,theta), rho_floor]
+rho_raw      = rho0 S_disk(r,theta) F_funnel(theta) + rho_env(r)
+```
+
+For the Gaussian control torus,
+
+```text
+S_G = exp[-((r-r0)/sigma_r)^2]
+      exp[-((theta-pi/2)/H)^2]
+```
+
+with the current compact support gates
+
+```text
+4 < r < 18,
+|theta - pi/2| < 0.45.
+```
+
+For the power-law morphology,
+
+```text
+S_PL = (r/r0)^(-p)
+       exp[-(cos(theta)/H)^2]
+       [1 - exp(-((r-r_min)/sigma_r)^2)]
+       exp[-(r/r_max)^4]
+```
+
+inside `r_min <= r <= r_max`, and zero outside. The factor in square brackets
+smoothly turns on the inner disk, while the last factor tapers the outer disk.
+
+Funnel models multiply the disk by
+
+```text
+F_funnel = clamp[1 - A (exp[-(theta/theta_f)^2]
+                         + exp[-((pi-theta)/theta_f)^2]), 0, 1]
+```
+
+where `A = funnel_depletion`. Envelope models add
+
+```text
+rho_env(r) = rho_env0 (r/r0)^(-alpha)
+```
+
+inside the configured envelope range. The `collapsar_ndaf_like` preset uses the
+same framework but changes the smooth shape to make a broader, denser inner
+region:
+
+```text
+mu       = cos(theta)
+vertical = exp[-(mu/H)^2]
+I(r)     = [1 + exp(-(r-r_min)/(0.35 sigma_r))]^-1
+O(r)     = [1 + exp( (r-r_max)/(0.60 sigma_r))]^-1
+core     = 0.45 exp[-((r-0.75 r0)/(0.75 sigma_r))^2]
+tail     = 0.08 exp[-((r-r0)/(1.8 sigma_r))^2]
+
+S_CND = [(r/r0)^(-p) + core + tail] vertical I(r) O(r)
+```
+
+This preset is still a semi-analytic density morphology. It is not an
+equilibrium NDAF solution and not a hydrodynamical collapsar simulation.
+
+#### 2.10.2 UHE source morphologies
+
+HADROS factorizes UHE emissivity into a spatial morphology and an energy
+weight:
+
+```text
+j_UHE(r,theta,E) = j0 W_src(r,theta) W_E(E).
+```
+
+The baseline `inner_ring` model is
+
+```text
+W_ring = exp[-((r-r_c)/sigma_r)^2]
+         exp[-((theta-pi/2)/sigma_theta)^2].
+```
+
+The `funnel_wall` model replaces the equatorial angular factor by a bipolar
+wall:
+
+```text
+W_wall = exp[-((r-r_c)/sigma_r)^2]
+         { exp[-((theta-theta_f)/sigma_theta)^2]
+          +exp[-((theta-(pi-theta_f))/sigma_theta)^2] }.
+```
+
+The `jet_base` model concentrates emission near the axis and small radii:
+
+```text
+W_jet = exp[-(r/r_c)^2]
+        { exp[-(theta/sigma_theta)^2]
+         +exp[-((theta-pi)/sigma_theta)^2] }.
+```
+
+The `density_weighted` model uses
+
+```text
+W_rho = clamp[(rho/rho_ref)^q (r/r_c)^(-s),
+              source_cutoff_min, source_cutoff_max].
+```
+
+The density-gradient, or `shock_layer`, model is a finite-difference proxy:
+
+```text
+partial_r rho approx [rho(r+dr,theta)-rho(r-dr,theta)]/(2 dr)
+
+partial_lateral rho approx
+  [rho(r,theta+dtheta)-rho(r,theta-dtheta)]/(2 r dtheta)
+
+|grad rho| approx sqrt[(partial_r rho)^2 + (partial_lateral rho)^2]
+```
+
+and the source weight is proportional to `|grad rho|/rho_ref`, with a radial
+taper and numerical cutoffs. This is a morphology proxy for interfaces; it is
+not a shock-acceleration calculation.
+
+#### 2.10.3 UHE spectral weights
+
+The spectral interface returns a scalar weight `W_E(E)`. The implemented
+models are
+
+```text
+monochromatic:    W_E is evaluated at the requested energy
+powerlaw:         W_E(E) = E^(-gamma)
+powerlaw_cutoff:  W_E(E) = E^(-gamma) exp(-E/Ecut).
+```
+
+For backward compatibility, the monochromatic branch preserves the older
+single-energy behavior.
+
+For spectral images, the code uses logarithmic bins. In bin `i`,
+
+```text
+E_i   = sqrt(E_left E_right)
+dE_i  = E_right - E_left
+w_i   = W_E(E_i) dE_i.
+```
+
+Then
+
+```text
+<tau>    = sum_i w_i tau(E_i) / sum_i w_i
+<Psurv>  = sum_i w_i Psurv(E_i) / sum_i w_i.
+```
+
+The current integrated UHE image intensity is accumulated as
+
+```text
+I_spec = sum_i I(E_i) dE_i,
+```
+
+where each `I(E_i)` already contains the local emissivity normalization for
+that energy. This distinction is important when comparing spectral-weighted
+diagnostics to purely monochromatic images.
+
+#### 2.10.4 UHE optical depth and image accumulation along a ray
+
+For each stored geodesic point, the transfer routine converts the spatial step
+to centimeters:
+
+```text
+dl_cm = dl_rg r_g.
+```
+
+Using the code convention
+
+```text
+g_code = 1 / redshift_factor,
+E_local = E_obs / g_code,
+```
+
+the baryon density is
+
+```text
+n_b = rho / m_u,
+```
+
+and the UHE DIS optical-depth increment is
+
+```text
+dtau_DIS = n_b sigma_nuN(E_local) dl_cm.
+```
+
+The cumulative optical depth is
+
+```text
+tau <- tau + dtau_DIS,
+P_surv = exp(-tau).
+```
+
+The observed UHE intensity is built before adding the local optical-depth
+increment at that point:
+
+```text
+I_obs <- I_obs
+       + g_code^3 j_UHE(r,theta,E_local) exp(-tau) dl_cm.
+```
+
+The factor `g_code^3` is the implemented relativistic intensity/redshift
+factor. The DIS table is used only when `E_local` lies inside the tabulated
+energy range; outside that range, the current ray point contributes no DIS
+increment rather than extrapolating an undocumented cross section.
+
+#### 2.10.5 MeV temperature and electron-fraction profiles
+
+The MeV thermodynamic fields are post-processing profiles. They are not evolved
+by hydrodynamics. Define the density-shape variable
+
+```text
+S_rho = clamp(rho/rho0, 0, 1).
+```
+
+Representative temperature profiles include:
+
+```text
+constant:
+T = T0
+
+inner_hot_torus:
+T = T_floor + T0 S_rho^(T_power)
+
+radial_powerlaw:
+T = T_floor + T0 (r/r0)^(-T_power)
+              [0.35 + 0.65 exp(-((theta-pi/2)/0.45)^2)].
+```
+
+The `collapsar_inner_hot` profile adds a smooth inner enhancement and radial
+cooling:
+
+```text
+H_in = exp[-((r-r_min)/(1.15 r0))^2]
+C_r  = [1 + max(r-r_min,0)/r0]^(-0.75)
+
+T = T_floor + T0 [0.30 + 0.70 S_rho^0.18]
+                 [0.45 + 0.55 exp(-((theta-pi/2)/0.45)^2)]
+                 [0.55 + 0.45 H_in] C_r.
+```
+
+Electron fraction profiles are likewise smooth prescriptions. The polar weight
+is
+
+```text
+P_pole = exp[-(theta/0.35)^2] + exp[-((pi-theta)/0.35)^2],
+```
+
+clamped to `[0,1]` when used as a mixing fraction. For example,
+
+```text
+Ye_funnel_proton_rich =
+  Ye_torus (1-P_pole) + Ye_funnel P_pole.
+```
+
+The `collapsar_neutron_rich` profile lowers `Ye` in dense inner torus regions
+and mixes toward `Ye_funnel` near the axis:
+
+```text
+D = S_rho^0.25
+R_n = exp[-((r-r0)/(1.2 r0))^2]
+Ye_torus_local = Ye_torus - 0.05 D R_n
+
+Ye = Ye_torus_local (1-P_pole) + Ye_funnel P_pole,
+```
+
+followed by the configured `Ye_floor` and `Ye_ceil` bounds.
+
+#### 2.10.6 CPU MeV emissivity, opacity, and transfer
+
+The CPU MeV module is the canonical reference implementation. Its physical
+branch uses approximate local spectral emissivity proxies. With
+
+```text
+rho10 = rho / 1e10
+T10   = T / 10,
+```
+
+the channel scalings are
+
+```text
+j_URCA  proportional to rho10 T10^6 f_flavor S(E,T)
+j_pair  proportional to       T10^9 f_flavor S(E,T)
+j_brems proportional to rho10^2 T10^5 f_flavor S(E,T),
+```
+
+where the Fermi-Dirac-like spectral shape is
+
+```text
+S(E,T) = E^2 / [(exp(E/T)+1) T^3].
+```
+
+The flavor factors are:
+
+```text
+URCA nu_e:       f = Ye
+URCA anti_nu_e:  f = 1 - Ye
+URCA nu_x:       f = 0
+
+pair nu_x:       f = 1
+pair nu_e/anti:  f = 0.7
+
+brems nu_x:      f = 1
+brems nu_e/anti: f = 0.8.
+```
+
+Absorption and scattering are local opacity proxies with `E_MeV^2` scaling:
+
+```text
+alpha_abs(nu_e)      = n_b (1-Ye) sigma_abs0 E^2
+alpha_abs(anti_nu_e) = n_b Ye     sigma_abs0 E^2
+alpha_abs(nu_x)      = 0
+
+alpha_scat = n_b (1-Ye) sigma_scat0 E^2
+            +n_b Ye 0.5 sigma_scat0 E^2
+            +n_e sigma_scat_e0 E^2.
+```
+
+The total opacity is
+
+```text
+alpha = alpha_abs + alpha_scat.
+```
+
+For one ray step,
+
+```text
+dtau_MeV = alpha dl_cm.
+```
+
+If `dtau_MeV` is finite and non-negligible, the exact constant-coefficient
+solution of
+
+```text
+dI/ds = j - alpha I
+```
+
+is used:
+
+```text
+I_out = I_in exp(-dtau_MeV)
+      + g_code^3 (j/alpha) [1 - exp(-dtau_MeV)].
+```
+
+In the optically thin branch, the code uses
+
+```text
+I_out = I_in + g_code^3 j dl_cm.
+```
+
+The MeV neutrinosphere radius is recorded at the first point where the
+accumulated `tau_MeV` crosses the configured threshold, commonly `2/3`.
+
+#### 2.10.7 Opacity surfaces and ParaView sampling
+
+Opacity-surface extraction samples an axisymmetric radial optical-depth
+function and solves for
+
+```text
+tau(r_tau, theta, E) = tau_target.
+```
+
+The crossing is not taken from the nearest grid point. The extraction searches
+for a sign change in
+
+```text
+F(r) = tau(r,theta,E) - tau_target
+```
+
+and linearly interpolates the crossing between the bracketing radial samples.
+If the target value is never reached, the output records that no physical
+crossing was found rather than inventing one.
+
+The ParaView exporter samples the same axisymmetric fields on a Cartesian
+mesh:
+
+```text
+r     = sqrt(x^2 + y^2 + z^2)
+theta = acos(z/r)
+phi   = atan2(y,x),
+```
+
+with the safe convention `theta=0` and `phi=0` at `r=0`. Exported scalar fields
+include
+
+```text
+rho, log10(rho), j_UHE, log10(j_UHE), r, theta, phi,
+normalized_source.
+```
+
+No local volumetric `tau` is exported, because optical depth is not a local
+scalar field without specifying a path convention.
+
 ## 3. Main Makefile Commands
 
 ### 3.1 Safe build and validation

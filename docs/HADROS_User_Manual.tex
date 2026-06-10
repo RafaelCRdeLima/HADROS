@@ -501,6 +501,284 @@ The ParaView export samples the current axisymmetric semi-analytic model onto a
 3D Cartesian grid. It is not a fully 3D hydrodynamical simulation and does not
 export a fake local optical-depth field.
 
+\subsection{Implementation-Level Equations for the Remaining Modules}
+
+This subsection connects the rest of the physical modules to the expressions
+actually evaluated by the current code. The goal is pedagogical: students
+should be able to follow the calculation from equations to implementation.
+
+\subsubsection{Density Morphologies}
+
+The density module evaluates
+\[
+\rho(r,\theta)=\max\{\rho_{\rm raw}(r,\theta),\rho_{\rm floor}\},
+\]
+with
+\[
+\rho_{\rm raw}=\rho_0 S_{\rm disk}(r,\theta)F_{\rm funnel}(\theta)
+               +\rho_{\rm env}(r).
+\]
+For the Gaussian control torus,
+\[
+S_G=\exp\!\left[-\left({r-r_0\over \sigma_r}\right)^2\right]
+    \exp\!\left[-\left({\theta-\pi/2\over H}\right)^2\right],
+\]
+with compact support gates $4<r<18$ and
+$|\theta-\pi/2|<0.45$. For the power-law morphology,
+\[
+S_{\rm PL}=\left({r\over r_0}\right)^{-p}
+\exp\!\left[-\left({\cos\theta\over H}\right)^2\right]
+\left[1-\exp\!\left(-\left({r-r_{\min}\over \sigma_r}\right)^2\right)\right]
+\exp\!\left[-\left({r\over r_{\max}}\right)^4\right],
+\]
+inside $r_{\min}\le r\le r_{\max}$.
+
+The bipolar funnel factor is
+\[
+F_{\rm funnel}={\rm clamp}\left[
+1-A\left(e^{-(\theta/\theta_f)^2}
+        +e^{-((\pi-\theta)/\theta_f)^2}\right),0,1\right],
+\]
+and envelope variants add
+\[
+\rho_{\rm env}=\rho_{\rm env,0}\left({r\over r_0}\right)^{-\alpha}.
+\]
+The \texttt{collapsar\_ndaf\_like} preset remains semi-analytic. It broadens
+the dense inner region with smooth inner and outer tapers,
+\[
+I(r)=\left[1+e^{-(r-r_{\min})/(0.35\sigma_r)}\right]^{-1},\quad
+O(r)=\left[1+e^{(r-r_{\max})/(0.60\sigma_r)}\right]^{-1},
+\]
+and uses
+\[
+S_{\rm CND}=\left[
+\left({r\over r_0}\right)^{-p}
+ +0.45e^{-((r-0.75r_0)/(0.75\sigma_r))^2}
+ +0.08e^{-((r-r_0)/(1.8\sigma_r))^2}
+\right]e^{-(\cos\theta/H)^2}I(r)O(r).
+\]
+It is not a hydrodynamical collapsar simulation or an equilibrium NDAF disk.
+
+\subsubsection{UHE Source Morphologies}
+
+The UHE emissivity is factorized as
+\[
+j_{\rm UHE}(r,\theta,E)=j_0\,W_{\rm src}(r,\theta)\,W_E(E).
+\]
+The baseline inner ring is
+\[
+W_{\rm ring}=
+e^{-((r-r_c)/\sigma_r)^2}
+e^{-((\theta-\pi/2)/\sigma_\theta)^2}.
+\]
+The funnel-wall model is
+\[
+W_{\rm wall}=e^{-((r-r_c)/\sigma_r)^2}
+\left[e^{-((\theta-\theta_f)/\sigma_\theta)^2}
+     +e^{-((\theta-(\pi-\theta_f))/\sigma_\theta)^2}\right],
+\]
+and the jet-base model is
+\[
+W_{\rm jet}=e^{-(r/r_c)^2}
+\left[e^{-(\theta/\sigma_\theta)^2}
+     +e^{-((\theta-\pi)/\sigma_\theta)^2}\right].
+\]
+The density-weighted model uses
+\[
+W_\rho={\rm clamp}\left[
+\left({\rho\over \rho_{\rm ref}}\right)^q
+\left({r\over r_c}\right)^{-s},
+W_{\min},W_{\max}\right].
+\]
+The density-gradient or \texttt{shock\_layer} source computes
+\[
+\partial_r\rho\simeq{\rho(r+dr,\theta)-\rho(r-dr,\theta)\over 2dr},
+\]
+\[
+\partial_\perp\rho\simeq
+{\rho(r,\theta+d\theta)-\rho(r,\theta-d\theta)\over 2r\,d\theta},
+\]
+and weights emission by
+$|\nabla\rho|/\rho_{\rm ref}$ with radial tapering and numerical cutoffs. This
+is an interface morphology proxy, not a shock-acceleration model.
+
+\subsubsection{UHE Spectra and Spectral Integration}
+
+The spectral interface returns $W_E(E)$. The implemented models are
+\[
+W_E(E)=E^{-\gamma}
+\]
+for \texttt{powerlaw}, and
+\[
+W_E(E)=E^{-\gamma}e^{-E/E_{\rm cut}}
+\]
+for \texttt{powerlaw\_cutoff}. The default \texttt{monochromatic} branch
+preserves the previous single-energy behavior.
+
+For spectral images, logarithmic bins are used:
+\[
+E_i=\sqrt{E_{\rm left}E_{\rm right}},\quad
+\Delta E_i=E_{\rm right}-E_{\rm left},\quad
+w_i=W_E(E_i)\Delta E_i.
+\]
+The reported averaged quantities are
+\[
+\langle\tau\rangle={\sum_i w_i\tau(E_i)\over \sum_i w_i},\quad
+\langle P_{\rm surv}\rangle={\sum_i w_iP_{\rm surv}(E_i)\over \sum_i w_i}.
+\]
+The spectral image intensity is accumulated as
+\[
+I_{\rm spec}=\sum_i I(E_i)\Delta E_i,
+\]
+with the energy dependence already included in the local emissivity.
+
+\subsubsection{UHE Optical Depth and Image Accumulation}
+
+For each stored geodesic point,
+\[
+dl_{\rm cm}=dl_{r_g}\,r_g,\quad n_b={\rho\over m_u}.
+\]
+With the code convention
+\[
+g_{\rm code}={1\over {\tt redshift\_factor}},\quad
+E_{\rm local}={E_{\rm obs}\over g_{\rm code}},
+\]
+the DIS increment is
+\[
+d\tau_{\rm DIS}=n_b\,\sigma_{\nu N}(E_{\rm local})\,dl_{\rm cm}.
+\]
+The cumulative survival probability is
+\[
+P_{\rm surv}=e^{-\tau_{\rm DIS}}.
+\]
+The observed UHE intensity update is
+\[
+I_{\rm obs}\leftarrow I_{\rm obs}
+ +g_{\rm code}^3\,j_{\rm UHE}(r,\theta,E_{\rm local})
+ e^{-\tau_{\rm DIS}}\,dl_{\rm cm}.
+\]
+DIS increments are evaluated only inside the tabulated cross-section energy
+range; HADROS does not silently extrapolate the DIS table.
+
+\subsubsection{MeV Temperature and Electron Fraction}
+
+The MeV thermodynamic fields are post-processing profiles. With
+\[
+S_\rho={\rm clamp}(\rho/\rho_0,0,1),
+\]
+representative temperature profiles are
+\[
+T=T_0,
+\]
+\[
+T=T_{\rm floor}+T_0S_\rho^{T_{\rm power}},
+\]
+and
+\[
+T=T_{\rm floor}+T_0\left({r\over r_0}\right)^{-T_{\rm power}}
+\left[0.35+0.65e^{-((\theta-\pi/2)/0.45)^2}\right].
+\]
+The \texttt{collapsar\_inner\_hot} profile uses
+\[
+H_{\rm in}=e^{-((r-r_{\min})/(1.15r_0))^2},\quad
+C_r=\left[1+{\max(r-r_{\min},0)\over r_0}\right]^{-0.75},
+\]
+\[
+T=T_{\rm floor}+T_0
+(0.30+0.70S_\rho^{0.18})
+(0.45+0.55e^{-((\theta-\pi/2)/0.45)^2})
+(0.55+0.45H_{\rm in})C_r,
+\]
+where the factors are multiplied in the code.
+
+The polar mixing weight for electron fraction is
+\[
+P_{\rm pole}=e^{-(\theta/0.35)^2}+e^{-((\pi-\theta)/0.35)^2},
+\]
+clamped to $[0,1]$ when used. A funnel-rich profile is
+\[
+Y_e=Y_{e,\rm torus}(1-P_{\rm pole})+Y_{e,\rm funnel}P_{\rm pole}.
+\]
+The \texttt{collapsar\_neutron\_rich} profile lowers $Y_e$ in dense inner
+regions:
+\[
+D=S_\rho^{0.25},\quad
+R_n=e^{-((r-r_0)/(1.2r_0))^2},
+\]
+\[
+Y_{e,\rm torus,local}=Y_{e,\rm torus}-0.05DR_n,
+\]
+then mixes this value toward $Y_{e,\rm funnel}$ near the axis.
+
+\subsubsection{CPU MeV Emissivity, Opacity, and Transfer}
+
+The canonical CPU MeV physical branch uses approximate local spectral
+emissivity proxies. With $\rho_{10}=\rho/10^{10}$ and $T_{10}=T/10$, the
+scalings are
+\[
+j_{\rm URCA}\propto \rho_{10}T_{10}^6 f_{\rm flavor}S(E,T),
+\]
+\[
+j_{\rm pair}\propto T_{10}^9 f_{\rm flavor}S(E,T),
+\]
+\[
+j_{\rm brems}\propto \rho_{10}^2T_{10}^5 f_{\rm flavor}S(E,T),
+\]
+where
+\[
+S(E,T)={E^2\over [e^{E/T}+1]T^3}.
+\]
+For URCA, $f_{\nu_e}=Y_e$, $f_{\bar{\nu}_e}=1-Y_e$, and $f_{\nu_x}=0$.
+Pair and bremsstrahlung use flavor weights of order unity and are documented
+as physically motivated proxies, not calibrated luminosity formulae.
+
+The local MeV opacity is
+\[
+\alpha=\alpha_{\rm abs}+\alpha_{\rm scat},
+\]
+with charged-current absorption
+\[
+\alpha_{\rm abs}(\nu_e)=n_b(1-Y_e)\sigma_{\rm abs,0}E^2,\quad
+\alpha_{\rm abs}(\bar{\nu}_e)=n_bY_e\sigma_{\rm abs,0}E^2,
+\]
+and no charged-current absorption for $\nu_x$ in the current approximation.
+Scattering includes neutron, proton, and electron terms with the same
+$E^2$-type scaling. For one step,
+\[
+d\tau_{\rm MeV}=\alpha\,dl_{\rm cm}.
+\]
+The implemented transfer update is the constant-coefficient solution
+\[
+I_{\rm out}=I_{\rm in}e^{-d\tau_{\rm MeV}}
+ +g_{\rm code}^3{j\over \alpha}(1-e^{-d\tau_{\rm MeV}}),
+\]
+with the thin-limit update $I_{\rm out}=I_{\rm in}+g_{\rm code}^3j\,dl_{\rm cm}$
+when $\alpha$ is negligible.
+
+\subsubsection{Opacity Surfaces and ParaView Sampling}
+
+The opacity-surface module solves
+\[
+\tau(r_\tau,\theta,E)=\tau_{\rm target}
+\]
+for axisymmetric backgrounds. It searches for a sign change in
+\[
+F(r)=\tau(r,\theta,E)-\tau_{\rm target}
+\]
+and linearly interpolates the crossing between bracketing radial samples. If no
+crossing exists, the output records that result; it does not create an
+artificial surface.
+
+The ParaView exporter samples the axisymmetric model on a Cartesian mesh using
+\[
+r=\sqrt{x^2+y^2+z^2},\quad
+\theta=\arccos(z/r),\quad
+\phi=\arctan2(y,x),
+\]
+with $\theta=0$ and $\phi=0$ at $r=0$. It exports density, log-density, UHE
+emissivity, log-emissivity, $r$, $\theta$, $\phi$, and normalized source
+morphology. It does not export a fake volumetric $\tau$ field.
+
 \section{Main Makefile Commands}
 
 \subsection{Safe Build and Validation}
