@@ -55,6 +55,38 @@ dependence in UHE images mostly enters through opacity,
 high-energy neutrino see essentially the same null geodesic, but not the same
 survival probability.
 
+The code works in gravitational-radius units,
+
+```text
+r_g = G M_BH / c^2
+```
+
+so distances such as source radius, torus radius, observer radius, and camera
+step are usually expressed in units of `r_g`. This is convenient because a
+Kerr problem with the same dimensionless spin and the same dimensionless
+geometry has the same ray shape when measured in `r_g`. The black-hole mass
+then enters when converting path length into centimeters for physical opacity
+integrals.
+
+Spin matters because Kerr spacetime is not just a Schwarzschild geometry with a
+different horizon. Frame dragging changes how rays bend near the black hole,
+and the horizon radius depends on spin. For a dimensionless spin `a`, the
+outer horizon in geometric units is
+
+```text
+r_+ = 1 + sqrt(1 - a^2)
+```
+
+in units where `G = M = c = 1`. HADROS does not infer the spin from a
+self-consistent accretion solution; the spin is a controlled input parameter.
+
+The ray tracing is best understood as a mapping from camera pixels to paths
+through the source environment. A pixel near the black-hole shadow corresponds
+to a ray that passed close to the horizon or was captured. A pixel away from
+the shadow samples more direct paths through the torus and funnel. HADROS uses
+this mapping to ask: along this path, how much matter did the neutrino cross,
+and how much emission accumulated before attenuation?
+
 ### 2.2 Semi-analytic density backgrounds
 
 The matter field is a controlled semi-analytic background, not a hydrodynamic
@@ -77,6 +109,29 @@ rho = max(rho_raw, rho_floor)
 
 This prevents numerical zero-density funnels from becoming artificially
 transparent.
+
+The profiles are deliberately simple enough to scan. A Gaussian torus is useful
+as a control because most of the mass is concentrated around a radius `r0` and
+falls off smoothly. A power-law torus is useful when one wants an extended
+radial column. Funnel variants reduce density near the polar axis, mimicking
+the qualitative fact that jet funnels are lower density than the equatorial
+disk. Envelope variants add an outer collapsar-like component, useful for
+testing whether large-radius material contributes significantly to UHE
+attenuation.
+
+These profiles should be read as morphology, not dynamics. There is no pressure
+balance equation, no angular-momentum transport, no self-consistent heating,
+and no hydrodynamic time evolution. That is a limitation, but it is also what
+makes the model useful for controlled experiments: changing one parameter can
+be interpreted as changing a column-density geometry rather than changing a
+full simulation with many coupled effects.
+
+The thermodynamic quantities used by the MeV module are also parameterized.
+Temperature and electron fraction are not evolved by the code. They are
+profiles used for post-processing diagnostics. This distinction matters: a
+MeV luminosity computed from a semi-analytic temperature field is a diagnostic
+consequence of that assumed field, not a prediction from a self-consistent disk
+simulation.
 
 | Regime | Purpose | Typical density | Interpretation | Limitation |
 |---|---|---:|---|---|
@@ -107,6 +162,44 @@ nucleon DIS cross section. HADROS currently compares:
 current interactions, antineutrino tables, regeneration, or PDF uncertainty
 bands.
 
+The opacity integral has a simple physical structure:
+
+```text
+number of targets crossed  x  interaction probability per target
+```
+
+The target column is controlled by the astrophysical model through `n_b ds`.
+The interaction probability is controlled by the particle physics through
+`sigma_nuN(E)`. This separation is one of the main reasons HADROS is useful:
+the same ray cache and density field can be post-processed with different DIS
+tables.
+
+The survival probability is exponential, so small and large optical depths
+behave very differently. If `tau << 1`, the medium is optically thin and
+
+```text
+P_surv approx 1 - tau
+```
+
+so differences between DIS models appear as small brightness changes. If
+`tau >> 1`, the medium is opaque and all models may produce nearly zero
+observed intensity, even when their absolute `tau` values differ by large
+factors. This is why the manual and validation reports distinguish between
+`mean_tau` and `total_intensity`: one can still compare optical depths after
+the image has saturated to black.
+
+At UHE energies the relevant nucleon structure is probed at very small Bjorken
+`x`. GBW and IIM are saturation-inspired small-`x` models. CTW is a
+Standard-Model PDF-based reference using MSTW 2008 PDFs. HADROS does not decide
+which description is correct. It propagates the consequences of each table
+through the same astrophysical setup, making the model dependence visible.
+
+Current limitations are important. Neutral-current scattering can reduce
+energy without fully absorbing the neutrino; regeneration can repopulate lower
+energies; antineutrino cross sections differ from neutrino cross sections; PDF
+uncertainty bands matter at the highest energies. These effects are not yet
+included in the current validation pipeline.
+
 ![Optical depth concept](figures/manual_tau_concept.png)
 
 ### 2.4 UHE source morphologies
@@ -125,6 +218,20 @@ The source morphologies are phenomenological:
 These models are not first-principles particle acceleration simulations. They
 are controlled prescriptions for testing how source placement changes the
 observed opacity maps.
+
+The source morphology affects where neutrinos are injected, not how the medium
+attenuates them. This distinction is essential. If neutrinos are injected deep
+inside the equatorial torus, many rays cross large baryonic columns before
+reaching the observer. If they are injected near the funnel wall, some rays can
+escape through lower-density angular regions. If they are injected near the jet
+base, the image may emphasize the polar geometry and black-hole lensing.
+
+The `shock_layer` model should be interpreted as a density-gradient proxy. It
+does not solve shock acceleration. It simply weights emission toward regions
+where the semi-analytic density changes rapidly, which is a plausible place to
+test interface-driven emission scenarios. The `density_weighted` model is
+similarly phenomenological: it asks what happens if production traces dense
+matter through a factor like `rho^q r^-s`.
 
 ### 2.5 UHE spectral models
 
@@ -153,6 +260,20 @@ Energy-band composite images use false colors: blue for the low-energy UHE
 band, green for the intermediate band, and red for the high-energy band. These
 colors encode energy intervals; they are not physical photon colors.
 
+Spectral integration changes the meaning of an image. A monochromatic image
+answers: what would the sky look like if all neutrinos had one energy? A
+spectral image answers: what is the weighted result after many energies are
+emitted and attenuated differently? Because `sigma_nuN(E)` grows with energy,
+the high-energy part of a spectrum can be suppressed more strongly than the
+low-energy part. Thus the observed spectrum is generally softer than the
+emitted spectrum when the medium is not fully transparent.
+
+The spectral interface is intentionally generic. The transport code asks for a
+spectral weight as a function of energy; it should not care whether that weight
+came from a power law, broken power law, log-parabola, thermal distribution, or
+future tabulated spectrum. This keeps the astrophysical transport pipeline
+separate from the source-spectrum model.
+
 ### 2.6 Optical-depth surfaces
 
 HADROS can extract diagnostic opacity surfaces such as:
@@ -167,6 +288,23 @@ These surfaces are properties of the medium, geometry, neutrino energy, and DIS
 cross section. They do not depend on the UHE source morphology. The current
 implementation is axisymmetric and extracts `r_tau(theta)`. It is designed so a
 future `r_tau(theta, phi)` extension can be added for true 3D backgrounds.
+
+Opacity surfaces are analogous in spirit to photospheres, but they should be
+used carefully. A surface `tau = 1` does not mean neutrinos are emitted there.
+It means that, according to the chosen optical-depth convention, material
+inside that surface is significantly attenuating. For UHE neutrinos this is a
+DIS opacity surface, not a thermal neutrinosphere.
+
+Because an opacity surface is a property of the medium, it should not change
+when one switches from `inner_ring` to `funnel_wall` or `jet_base`, provided
+the density, geometry, energy, and cross section are unchanged. This is a key
+validation check in HADROS. Source models can change image brightness and
+where emission appears, but they should not change `r_tau(theta)`.
+
+The current extraction is radial and axisymmetric. That means it is most useful
+for comparing density backgrounds, energies, and cross-section choices. A true
+observer-dependent optical depth along camera geodesics is already used in
+images, but that is not the same object as a simple radial opacity surface.
 
 ### 2.7 Thermal MeV neutrino module
 
@@ -202,6 +340,41 @@ dI/ds = j - alpha I
 where `j` is emissivity and `alpha` is opacity. CPU MeV is the canonical
 physical reference implementation. CUDA MeV remains legacy/toy until it is
 ported and validated.
+
+The MeV module lives in a different physical regime from the UHE module. MeV
+neutrino emission is thermal or weak-interaction emission from hot dense
+matter. UHE neutrino attenuation is DIS scattering on baryons at vastly higher
+energies. They can be evaluated on the same background, but they should not be
+mixed conceptually.
+
+Temperature is especially important. Pair emission has a steep approximate
+temperature dependence, often summarized as a high power such as `T^9` in
+simple scaling arguments. URCA-like channels also rise rapidly with
+temperature and depend on density and electron fraction. Therefore a torus with
+`T ~ 4 MeV` can be orders of magnitude dimmer in MeV neutrinos than a torus
+with `T ~ 15 MeV`, even if the geometry looks similar.
+
+Electron fraction `Ye` controls the relative abundance of neutrons and protons.
+That matters for charged-current absorption and for differences between
+`nu_e`, `anti_nu_e`, and heavy-lepton flavors grouped as `nu_x`. In the current
+approximation, `nu_x` does not have the same charged-current absorption as
+electron-flavor neutrinos.
+
+The transfer equation has a useful limiting behavior. If `alpha ds` is very
+small, the optically thin update is approximately
+
+```text
+I_out approx I_in + j ds
+```
+
+If `alpha ds` is very large, the intensity approaches the local source
+function:
+
+```text
+I_out -> j / alpha
+```
+
+The validation suite checks these limits for the CPU MeV module.
 
 ![UHE and MeV modules](figures/manual_uhe_vs_mev_physics.png)
 

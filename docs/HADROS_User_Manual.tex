@@ -82,6 +82,28 @@ The ray path is therefore controlled by the Kerr geometry. The energy
 dependence in UHE images mostly enters through opacity, $\sigma_{\nu N}(E)$,
 not through chromatic lensing.
 
+HADROS works in gravitational-radius units,
+\[
+r_g=\frac{G M_{\rm BH}}{c^2}.
+\]
+Radii, camera distances, source locations, and ray steps are usually expressed
+in units of $r_g$. The black-hole mass enters again when converting a
+dimensionless path length into centimeters for opacity integrals.
+
+Spin changes more than the horizon size. In Kerr spacetime frame dragging
+modifies the mapping between camera pixels and paths near the black hole. The
+outer horizon is
+\[
+r_+ = 1 + \sqrt{1-a^2}
+\]
+in geometric units. HADROS treats the spin as a controlled input parameter,
+not as the result of a self-consistent accretion calculation.
+
+The ray cache should be understood as a map from image pixels to paths through
+the environment. Pixels near the shadow correspond to rays that pass close to
+the horizon or are captured; pixels away from the shadow sample more direct
+paths through the torus and funnel.
+
 \subsection{Semi-analytic Density Backgrounds}
 
 The matter field is a controlled semi-analytic background, not a hydrodynamic
@@ -93,6 +115,21 @@ Every profile applies an explicit density floor:
 \[
 \rho = \max(\rho_{\rm raw},\rho_{\rm floor}).
 \]
+
+The profiles are deliberately simple enough to scan. A Gaussian torus is useful
+as a control; a power-law torus gives a more extended radial column; funnel
+variants reduce polar density; and envelope variants test whether outer
+collapsar-like material contributes appreciably to UHE attenuation.
+
+These profiles are morphology, not dynamics. There is no pressure balance
+equation, angular-momentum transport, self-consistent heating, or hydrodynamic
+time evolution. The advantage is interpretability: changing one parameter
+changes a controlled column-density geometry.
+
+The temperature and electron-fraction profiles used by the MeV module are also
+parameterized. A MeV luminosity computed from these fields is a diagnostic
+consequence of the assumed semi-analytic background, not a calibrated
+simulation prediction.
 
 \begin{longtable}{p{0.25\textwidth}p{0.22\textwidth}p{0.43\textwidth}}
 \toprule
@@ -120,6 +157,25 @@ Connolly, Thorne \& Waters, Phys. Rev. D 83, 113009, Table I. It does not
 include neutral-current interactions, antineutrino tables, regeneration, or PDF
 uncertainty bands.
 
+The opacity integral separates the astrophysics from the particle physics:
+\[
+\tau_{\rm DIS}\sim \hbox{target column}\times\hbox{interaction probability}.
+\]
+The target column is set by $n_b ds$ and the cross section is set by
+$\sigma_{\nu N}(E)$. This separation allows the same ray cache and density
+field to be post-processed with GBW, IIM, CTW, or another future table.
+
+If $\tau\ll 1$, then $P_{\rm surv}\simeq 1-\tau$ and DIS-model differences
+produce small brightness changes. If $\tau\gg 1$, all models may give zero
+observed intensity even if their absolute optical depths differ by large
+factors. For this reason the validation reports compare both optical-depth
+metrics and image intensity.
+
+At UHE energies the cross section probes very small Bjorken $x$. GBW and IIM
+are saturation-inspired small-$x$ models, while CTW is a Standard-Model
+PDF-based reference using MSTW 2008 PDFs. HADROS does not decide which model is
+correct; it propagates each assumption through the same astrophysical setup.
+
 \begin{figure}[h]
 \centering
 \includegraphics[width=0.75\textwidth]{figures/manual_tau_concept.png}
@@ -133,6 +189,12 @@ Implemented source morphologies are \texttt{inner\_ring},
 \texttt{funnel\_wall}, \texttt{jet\_base}, \texttt{shock\_layer}, and
 \texttt{density\_weighted}. These are phenomenological source morphologies, not
 first-principles particle-acceleration simulations.
+
+The source morphology changes where neutrinos are injected, not how the medium
+attenuates them. Equatorial injection tends to cross larger baryonic columns;
+funnel-wall injection can expose lower-density escape paths; jet-base injection
+emphasizes polar geometry and strong lensing. The \texttt{shock\_layer} option
+is a density-gradient proxy, not a shock-acceleration calculation.
 
 \subsection{UHE Spectral Models}
 
@@ -148,12 +210,25 @@ and the cutoff model is
 Energy-band composite images use false colors: blue for low-energy UHE,
 green for intermediate-energy UHE, and red for high-energy UHE.
 
+A monochromatic image asks what the sky looks like at one energy. A spectral
+image weights several energies by an emitted spectrum and then attenuates each
+energy differently. Since $\sigma_{\nu N}(E)$ grows with energy, the observed
+spectrum can be softer than the emitted spectrum. The spectral interface is
+generic: future spectra can be added by changing the spectral-weight function,
+not the ray-tracing or opacity pipeline.
+
 \subsection{Optical-depth Surfaces}
 
 HADROS can extract diagnostic opacity surfaces such as $\tau=2/3$, $\tau=1$,
 and $\tau=3$. These surfaces are properties of the medium, geometry, energy,
 and DIS cross section. They do not depend on the UHE source morphology. The
 current extraction is axisymmetric and returns $r_\tau(\theta)$.
+
+An opacity surface is analogous in spirit to a photosphere, but it is not an
+emission surface. A surface $\tau=1$ means material inside that radius is
+attenuating according to the chosen convention. For UHE neutrinos this is a DIS
+opacity surface, not a thermal neutrinosphere. Since it is a property of the
+medium, it should remain unchanged when only the UHE source morphology changes.
 
 \subsection{Thermal MeV Neutrino Module}
 
@@ -178,6 +253,32 @@ The local transfer equation is
 \]
 CPU MeV is the canonical physical reference implementation. CUDA MeV remains
 legacy/toy until it is ported and validated.
+
+The MeV and UHE modules live in different physical regimes. MeV neutrino
+emission is thermal or weak-interaction emission from hot dense matter; UHE
+attenuation is DIS scattering on baryons at vastly higher energies. They can be
+evaluated on the same background, but they should not be mixed conceptually.
+
+Temperature is crucial. Pair emission rises very steeply with temperature,
+often summarized by high-power scalings such as $T^9$ in simple arguments.
+URCA-like channels also rise rapidly and depend on density and electron
+fraction. Thus a torus at $T\sim4$ MeV can be orders of magnitude dimmer than a
+torus at $T\sim15$ MeV.
+
+Electron fraction $Y_e$ controls the neutron/proton balance and therefore the
+relative behavior of $\nu_e$, $\bar{\nu}_e$, and heavy-lepton flavors grouped
+as $\nu_x$. In the current approximation, $\nu_x$ does not have the same
+charged-current absorption as electron-flavor neutrinos.
+
+The transfer equation has useful limits. In the optically thin case,
+\[
+I_{\rm out}\simeq I_{\rm in}+j\,ds,
+\]
+while for large $\alpha ds$ the intensity approaches the source function,
+\[
+I_{\rm out}\rightarrow \frac{j}{\alpha}.
+\]
+The CPU MeV validation checks these limiting behaviors.
 
 \begin{figure}[h]
 \centering
