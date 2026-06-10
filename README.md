@@ -10,6 +10,14 @@ HADROS combines Kerr ray tracing, DIS optical-depth calculations, and
 radiative-transfer post-processing for controlled high-energy astrophysical
 neutrino opacity studies.
 
+Student-friendly documentation:
+
+```text
+docs/HADROS_User_Manual.md
+docs/HADROS_User_Manual.tex
+docs/HADROS_User_Manual.pdf
+```
+
 ## Density Background Framework
 
 The current medium model uses semi-analytic density morphologies: controlled,
