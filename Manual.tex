@@ -1,0 +1,920 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[a4paper,margin=2.4cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue,
+  urlcolor=blue,
+  pdftitle={Manual do Projeto BH\_Torus},
+  pdfauthor={BH\_Torus}
+}
+
+\setlist[itemize]{noitemsep,topsep=3pt}
+\setlist[enumerate]{noitemsep,topsep=3pt}
+\emergencystretch=2em
+
+\title{Manual do Projeto BH\_Torus\\
+\large Collapsar, Neutrinos UHE, Toro de Matéria e Ray Tracing em Kerr}
+\author{Projeto BH\_Torus}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Visão geral física e computacional}
+
+Este projeto calcula imagens sintéticas de neutrinos de energia ultra-alta
+(UHE) produzidos em uma fonte circular interna de um collapsar e propagados
+através de um toro denso em torno de um buraco negro de Kerr. A simulação
+combina:
+
+\begin{itemize}
+  \item geodésicas nulas em uma métrica de Kerr;
+  \item uma câmera distante em coordenadas de Boyer-Lindquist;
+  \item um perfil paramétrico de densidade, temperatura e $Y_e$ para o toro;
+  \item seção de choque neutrino-núcleon de corrente carregada, lida de tabela;
+  \item profundidade óptica DIS ao longo dos raios;
+  \item emissividade UHE local e transferência radiativa atenuada;
+  \item um segundo canal térmico MeV com emissividade, opacidades,
+  leakage e estimativa de neutrinosfera.
+\end{itemize}
+
+O fluxo principal do programa é:
+
+\begin{enumerate}
+  \item gerar e salvar as geodésicas da câmera em
+  \texttt{output/rays/kerr\_geodesics.bin};
+  \item reler esse cache para cada energia observada $E_{\nu,\rm obs}$;
+  \item integrar a emissão e a absorção ao longo de cada raio;
+  \item salvar a imagem em \texttt{output/images/};
+  \item gerar figuras em \texttt{plots/}.
+\end{enumerate}
+
+\subsection*{Status dos backgrounds de densidade}
+
+Os perfis de densidade usados neste projeto devem ser interpretados como
+\emph{morfologias semi-analíticas controladas} para estudos de opacidade UHE.
+Eles não são soluções hidrodinâmicas, simulações realistas de collapsar, nem
+discos de acreção em equilíbrio. O objetivo é isolar como diferentes colunas de
+matéria parametrizadas afetam a profundidade óptica DIS.
+
+A validação CUDA dos novos perfis está pendente. Antes de usar o backend CUDA
+para estes backgrounds no paper, deve-se comparar explicitamente
+$\tau_{\rm CPU}$ contra $\tau_{\rm CUDA}$ e $P_{\rm surv,CPU}$ contra
+$P_{\rm surv,CUDA}$ para pelo menos um caso gaussiano e um caso
+\texttt{powerlaw\_funnel\_envelope}.
+
+Por padrão, o \texttt{Makefile} usa o alvo \texttt{kerr-criar-cache}, que
+executa as duas etapas: geodésicas e imagem.
+
+\section{Unidades e constantes}
+
+O código usa unidades geométricas para a parte relativística, com
+
+\begin{equation}
+  r_g = \frac{GM}{c^2}.
+\end{equation}
+
+As coordenadas dos raios são armazenadas em unidades de $r_g$. Quando a
+profundidade óptica é integrada, o elemento de caminho adimensional
+\texttt{dl\_rg} é convertido para centímetros por
+
+\begin{equation}
+  dl_{\rm cm} = dl_{r_g}\,r_g.
+\end{equation}
+
+A densidade bariônica é aproximada por
+
+\begin{equation}
+  n_b = \frac{\rho}{m_u},
+\end{equation}
+
+onde $m_u$ é a unidade de massa atômica.
+
+\subsection*{Onde está no programa}
+
+\begin{itemize}
+  \item \texttt{include/constants.hpp}: define $c$, $G$, $M_\odot$, $m_u$ e
+  a função \texttt{rg\_cm(M\_msun)}.
+  \item \texttt{src/radiative\_transfer.cpp}: converte \texttt{dl\_rg} para
+  \texttt{dl\_cm}.
+  \item \texttt{src/optical\_depth.cpp}: usa $n_b=\rho/m_u$ na profundidade
+  óptica de teste para raios retos.
+\end{itemize}
+
+\section{Métrica de Kerr}
+
+A métrica é implementada em coordenadas de Boyer-Lindquist
+$(t,r,\theta,\phi)$, com assinatura $(-,+,+,+)$ e spin adimensional $a$.
+As funções auxiliares são
+
+\begin{align}
+  \Sigma &= r^2 + a^2\cos^2\theta,\\
+  \Delta &= r^2 - 2r + a^2,\\
+  A &= (r^2+a^2)^2 - a^2\Delta\sin^2\theta.
+\end{align}
+
+O horizonte externo é
+
+\begin{equation}
+  r_+ = 1+\sqrt{1-a^2}.
+\end{equation}
+
+Os componentes covariantes usados são
+
+\begin{align}
+  g_{tt} &= -\left(1-\frac{2r}{\Sigma}\right),\\
+  g_{t\phi} &= -\frac{2ar\sin^2\theta}{\Sigma},\\
+  g_{rr} &= \frac{\Sigma}{\Delta},\\
+  g_{\theta\theta} &= \Sigma,\\
+  g_{\phi\phi} &=
+  \left(r^2+a^2+\frac{2a^2r\sin^2\theta}{\Sigma}\right)\sin^2\theta.
+\end{align}
+
+O código também usa a métrica inversa
+
+\begin{align}
+  g^{tt} &= -\frac{A}{\Sigma\Delta},\\
+  g^{t\phi} &= -\frac{2ar}{\Sigma\Delta},\\
+  g^{rr} &= \frac{\Delta}{\Sigma},\\
+  g^{\theta\theta} &= \frac{1}{\Sigma},\\
+  g^{\phi\phi} &= \frac{\Delta-a^2\sin^2\theta}
+  {\Sigma\Delta\sin^2\theta}.
+\end{align}
+
+Para construir a câmera local, o programa usa ainda o lapse e a velocidade
+angular de arrasto de referenciais,
+
+\begin{align}
+  \alpha &= \sqrt{\frac{\Sigma\Delta}{A}},\\
+  \omega &= \frac{2ar}{A}.
+\end{align}
+
+\subsection*{Onde está no programa}
+
+\begin{itemize}
+  \item \texttt{src/kerr\_metric.cpp}: \texttt{Sigma}, \texttt{Delta},
+  \texttt{A}, \texttt{metric}, \texttt{inverse\_metric},
+  \texttt{horizon\_radius}, \texttt{lapse} e
+  \texttt{omega\_frame\_drag}.
+  \item \texttt{include/kerr\_metric.hpp}: interface da classe
+  \texttt{KerrMetric}.
+  \item \texttt{apps/test\_kerr\_metric.cpp}: teste básico da métrica.
+\end{itemize}
+
+\section{Geodésicas nulas por Hamiltoniano}
+
+Cada raio é propagado como uma geodésica nula. O estado canônico é
+
+\begin{equation}
+  y = (t,r,\theta,\phi,p_t,p_r,p_\theta,p_\phi).
+\end{equation}
+
+O Hamiltoniano usado é
+
+\begin{equation}
+  H = \frac{1}{2}g^{\mu\nu}p_\mu p_\nu.
+\end{equation}
+
+Para uma geodésica nula ideal, $H=0$. As equações de Hamilton são
+
+\begin{align}
+  \frac{dx^\mu}{d\lambda} &= \frac{\partial H}{\partial p_\mu}
+  = g^{\mu\nu}p_\nu,\\
+  \frac{dp_\mu}{d\lambda} &= -\frac{\partial H}{\partial x^\mu}
+  = -\frac{1}{2}\frac{\partial g^{\alpha\beta}}
+  {\partial x^\mu}p_\alpha p_\beta.
+\end{align}
+
+Como a métrica é estacionária e axissimétrica, o código mantém
+
+\begin{equation}
+  \frac{dp_t}{d\lambda}=0,\qquad
+  \frac{dp_\phi}{d\lambda}=0.
+\end{equation}
+
+As derivadas espaciais da métrica inversa em $r$ e $\theta$ são avaliadas por
+diferenças finitas centradas. A integração usa um passo adaptativo tipo
+Runge-Kutta-Fehlberg, com fallback para RK4.
+
+\subsection*{Onde está no programa}
+
+\begin{itemize}
+  \item \texttt{src/kerr\_geodesic.cpp}: \texttt{hamiltonian},
+  \texttt{rhs}, \texttt{dg\_inv\_dr}, \texttt{dg\_inv\_dtheta},
+  \texttt{step\_adaptive} e \texttt{step\_rk4}.
+  \item \texttt{include/geodesic\_state.hpp}: estrutura do estado canônico.
+  \item \texttt{include/kerr\_geodesic.hpp}: interface do integrador.
+\end{itemize}
+
+\section{Câmera de Kerr e condição inicial dos raios}
+
+Cada pixel $(i,j)$ é convertido em coordenadas angulares de câmera:
+
+\begin{align}
+  u &= \left[2\frac{i+1/2}{N_x}-1\right]\tan\frac{\mathrm{FOV}}{2},\\
+  v &= \left[2\frac{j+1/2}{N_y}-1\right]\tan\frac{\mathrm{FOV}}{2}.
+\end{align}
+
+A direção local normalizada é
+
+\begin{align}
+  n_r &= -\frac{1}{\sqrt{1+u^2+v^2}},\\
+  n_\theta &= \frac{v}{\sqrt{1+u^2+v^2}},\\
+  n_\phi &= \frac{u}{\sqrt{1+u^2+v^2}}.
+\end{align}
+
+O sinal negativo em $n_r$ indica que o raio é lançado para trás a partir do
+observador, isto é, para dentro em direção ao buraco negro e ao toro.
+
+Na aproximação tetrádica ZAMO/LNRF usada pelo código, os componentes
+contravariantes iniciais são
+
+\begin{align}
+  p^t &= \frac{1}{\alpha},\\
+  p^r &= \frac{n_r}{\sqrt{g_{rr}}},\\
+  p^\theta &= \frac{n_\theta}{\sqrt{g_{\theta\theta}}},\\
+  p^\phi &= \frac{n_\phi}{\sqrt{g_{\phi\phi}}}+\omega p^t.
+\end{align}
+
+O programa então baixa o índice via
+
+\begin{equation}
+  p_\mu = g_{\mu\nu}p^\nu.
+\end{equation}
+
+O raio é interrompido se cruza $r_+ + 10^{-3}$ ou se escapa para
+\texttt{CAM\_R\_MAX\_RG}. O cache salva os pontos do caminho e uma flag
+\texttt{captured}.
+
+\subsection*{Onde está no programa}
+
+\begin{itemize}
+  \item \texttt{src/kerr\_camera.cpp}: \texttt{initial\_state} constrói
+  $u,v,n_i,p^\mu,p_\mu$; \texttt{trace\_pixel} integra o raio e salva
+  pontos.
+  \item \texttt{include/ray.hpp}: define \texttt{PathPoint} e
+  \texttt{RayPath}.
+  \item \texttt{apps/compute\_kerr\_geodesics.cpp}: gera o arquivo binário
+  \texttt{output/rays/kerr\_geodesics.bin}.
+\end{itemize}
+
+\section{Modelo paramétrico do toro do collapsar}
+
+O toro é representado por um perfil gaussiano em raio e em afastamento
+angular do plano equatorial. Com
+
+\begin{equation}
+  \delta_\theta = \theta-\frac{\pi}{2},
+\end{equation}
+
+a densidade é
+
+\begin{equation}
+  \rho(r,\theta) =
+  \rho_0
+  \exp\left[-\left(\frac{r-r_0}{\sigma_r}\right)^2\right]
+  \exp\left[-\left(\frac{\delta_\theta}{H/R}\right)^2\right],
+\end{equation}
+
+mas somente dentro da região lógica atualmente fixada por
+
+\begin{equation}
+  4 < r/r_g < 18,\qquad |\theta-\pi/2| < 0.45.
+\end{equation}
+
+A temperatura parametrizada é
+
+\begin{equation}
+  T(r,\theta) =
+  6\,{\rm MeV}\,
+  \left[
+  \exp\left[-\left(\frac{r-r_0}{\sigma_r}\right)^2\right]
+  \right]^{0.2}
+  \left[
+  \exp\left[-\left(\frac{\delta_\theta}{H/R}\right)^2\right]
+  \right]^{0.1},
+\end{equation}
+
+com piso numérico $10^{-10}$ MeV. A fração eletrônica usada é
+
+\begin{equation}
+  Y_e(r) = 0.2 + 0.1
+  \exp\left[-\left(\frac{r-r_0}{4}\right)^2\right],
+\end{equation}
+
+dentro do toro.
+
+\subsection*{Onde está no programa}
+
+\begin{itemize}
+  \item \texttt{src/torus\_profile.cpp}: \texttt{in\_torus},
+  \texttt{rho}, \texttt{temperature\_MeV} e \texttt{Ye}.
+  \item \texttt{include/torus\_profile.hpp}: parâmetros padrão da classe.
+  \item \texttt{apps/dump\_torus\_grid.cpp}: exporta uma grade do toro.
+\end{itemize}
+
+\section{Escala física da densidade do toro}
+
+O parâmetro \texttt{TORUS\_RHO0} deve ser interpretado como a densidade
+máxima ou central do perfil paramétrico do toro, isto é, aproximadamente
+$\rho_{\rm max}$ no plano equatorial perto de $r=r_0$. Ele não é a densidade
+média do disco, nem a densidade do funil polar. Essa distinção é importante,
+pois em um collapsar real a densidade varia por muitas ordens de grandeza
+entre o disco interno, o toro externo, as regiões de fallback e o canal polar.
+
+A literatura sugere as seguintes escalas de ordem de grandeza:
+
+\begin{longtable}{p{4.4cm}p{4.0cm}p{6.0cm}}
+\toprule
+Cenário físico & Densidade típica & Interpretação para este modelo\\
+\midrule
+\endhead
+Canal polar evacuado em simulações de collapsar &
+$\rho \sim 10^6\ {\rm g\,cm^{-3}}$ &
+Representa material de baixa densidade fora do toro equatorial; não deve ser
+usado como densidade central de um toro denso, mas é útil como limite baixo
+para testes de transparência \cite{MacFadyenWoosley1999Web}.\\
+Disco/toro global em simulações hidrodinâmicas de collapsar, a alguns
+segundos após o colapso &
+$\rho \sim 10^9\ {\rm g\,cm^{-3}}$ no disco denso, com densidades maiores
+esperadas mais internamente &
+Bom valor inicial para representar um toro equatorial global sem assumir
+imediatamente um NDAF extremamente compacto \cite{MacFadyenWoosley1999,
+MacFadyenWoosley1999Web}.\\
+Tori externos/tardios associados ao fallback, com queima nuclear no disco &
+$\rho_{\rm max}\sim 5\times 10^5$--$5\times 10^8\ {\rm g\,cm^{-3}}$ &
+Relevante para fases mais tardias, raios de circularização maiores
+($\sim 10^8$--$10^9$ cm) e discos menos compactos
+\cite{ZenatiSiegelMetzger2020}.\\
+Disco interno de hiperdecreção resfriado por neutrinos, ou NDAF &
+$\rho \sim 10^{10}$--$10^{13}\ {\rm g\,cm^{-3}}$ &
+Regime mais denso e compacto, apropriado perto do buraco negro quando a taxa
+de acreção é alta e o resfriamento por neutrinos domina \cite{LiuGuZhang2017}.\\
+NDAF compacto com acoplamento magnético buraco negro--disco &
+$\rho_{\rm max}\sim 10^{13}\ {\rm g\,cm^{-3}}$ em soluções de alta acreção &
+Limite alto plausível para varreduras paramétricas densas, mas com física
+mais extrema que o toro gaussiano simples usado aqui \cite{SheLiuXue2022}.\\
+\bottomrule
+\end{longtable}
+
+Assim, para imagens e diagnósticos publicáveis, uma varredura razoável para
+o parâmetro central do toro é
+
+\begin{equation}
+  \rho_0 =
+  10^6,\ 10^7,\ 10^8,\ 10^9,\ 10^{10},\ 10^{11}
+  \ {\rm g\,cm^{-3}},
+\end{equation}
+
+com extensão para $10^{12}$--$10^{13}\ {\rm g\,cm^{-3}}$ caso se deseje
+explorar o limite NDAF interno. Valores como $\rho_0=10^{-2}\ {\rm g\,cm^{-3}}$
+devem ser entendidos apenas como testes numéricos de código e organização de
+saída, não como densidades físicas de um toro de collapsar.
+
+Como a profundidade óptica DIS usada no código escala aproximadamente como
+
+\begin{equation}
+  \tau_{\rm DIS}
+  \simeq
+  \int \frac{\rho}{m_u}\,
+  \sigma_{\nu N}^{\rm CC}(E_\nu)\,dl,
+\end{equation}
+
+a mudança de \texttt{TORUS\_RHO0} altera diretamente a atenuação dos neutrinos
+UHE. Em primeira aproximação, mantendo geometria, energia e trajetória fixas,
+tem-se $\tau_{\rm DIS}\propto\rho_0$. Portanto, a varredura em densidade é
+fisicamente tão importante quanto a varredura em energia.
+
+\section{Seção de choque DIS neutrino-núcleon}
+
+A absorção usa seção de choque de corrente carregada
+$\sigma_{\nu N}^{\rm CC}(E_\nu)$ lida de tabela. O arquivo padrão é
+
+\begin{equation}
+  \texttt{data/sigma/sigma\_nuN\_CC\_GBW.dat}.
+\end{equation}
+
+A tabela contém energia em GeV, seção de choque em GeV$^{-2}$ e seção de
+choque em cm$^2$. O código usa a coluna em cm$^2$ para a profundidade óptica.
+A interpolação é log-log:
+
+\begin{equation}
+  \ln \sigma(E) =
+  \ln\sigma_1 +
+  \frac{\ln E-\ln E_1}{\ln E_2-\ln E_1}
+  \left(\ln\sigma_2-\ln\sigma_1\right).
+\end{equation}
+
+\subsection*{Onde está no programa}
+
+\begin{itemize}
+  \item \texttt{src/sigma\_table.cpp}: leitura da tabela e interpolação
+  log-log em \texttt{log\_interp}.
+  \item \texttt{include/sigma\_table.hpp}: interface da tabela.
+  \item \texttt{apps/compute\_kerr\_image\_from\_cache.cpp}: escolhe
+  \texttt{sigma\_nuN\_CC\_GBW.dat}.
+  \item \texttt{data/sigma/}: contém modelos \texttt{GBW} e \texttt{IIM}.
+\end{itemize}
+
+\section{Profundidade óptica e probabilidade de sobrevivência}
+
+Ao longo de um raio, a profundidade óptica DIS é
+
+\begin{equation}
+  \tau(E_\nu) =
+  \int n_b(s)\,
+  \sigma_{\nu N}^{\rm CC}\!\left(E_{\nu,\rm local}(s)\right)\,ds.
+\end{equation}
+
+Na forma discretizada usada no programa,
+
+\begin{equation}
+  \Delta\tau_k =
+  \frac{\rho_k}{m_u}\,
+  \sigma_{\nu N}^{\rm CC}(E_{\nu,\rm local,k})\,
+  \Delta l_{{\rm cm},k},
+\end{equation}
+
+e
+
+\begin{equation}
+  \tau = \sum_k \Delta\tau_k.
+\end{equation}
+
+A probabilidade de sobrevivência é
+
+\begin{equation}
+  P_{\rm surv} = e^{-\tau}.
+\end{equation}
+
+O fator de redshift armazenado no caminho é usado para converter energia
+observada em energia local. No integrador principal de transferência
+radiativa, o código define
+
+\begin{equation}
+  g = \frac{1}{\texttt{redshift\_factor}},\qquad
+  E_{\nu,\rm local} = \frac{E_{\nu,\rm obs}}{g}.
+\end{equation}
+
+Na implementação atual da câmera, \texttt{redshift\_factor} é aproximado por
+
+\begin{equation}
+  \texttt{redshift\_factor} =
+  \left(1-\frac{2}{r}\right)^{-1/2},
+\end{equation}
+
+com proteção numérica perto do horizonte.
+
+\subsection*{Onde está no programa}
+
+\begin{itemize}
+  \item \texttt{src/radiative\_transfer.cpp}: integração principal de
+  $\tau$, $P_{\rm surv}$ e $I_{\rm obs}$ em \texttt{integrate\_kerr\_ray}.
+  \item \texttt{src/kerr\_camera.cpp}: armazena \texttt{redshift\_factor}
+  em cada \texttt{PathPoint}.
+  \item \texttt{src/optical\_depth.cpp}: contém funções auxiliares para
+  raios retos e para integração ao longo de \texttt{RayPath}.
+\end{itemize}
+
+\section{Fonte circular UHE e transferência radiativa}
+
+A fonte interna é um anel gaussiano no raio e na latitude, com espectro de
+potência e corte exponencial. A emissividade local é
+
+\begin{equation}
+  j(E_{\nu,\rm local},r,\theta) =
+  j_0
+  \exp\left[-\left(\frac{r-r_s}{\sigma_s}\right)^2\right]
+  \exp\left[-\left(\frac{\theta-\pi/2}{\theta_s}\right)^2\right]
+  E_{\nu,\rm local}^{-p}
+  \exp\left(-\frac{E_{\nu,\rm local}}{E_{\rm max}}\right).
+\end{equation}
+
+A intensidade observada acumulada no pixel é discretizada como
+
+\begin{equation}
+  I_{\rm obs} =
+  \sum_k
+  g_k^3\,
+  j_k\,
+  e^{-\tau_k}\,
+  \Delta l_{{\rm cm},k}.
+\end{equation}
+
+O fator $g^3$ representa a transformação relativística usual da intensidade
+específica, compatível com a invariância de $I_\nu/\nu^3$.
+
+\subsection*{Onde está no programa}
+
+\begin{itemize}
+  \item \texttt{src/radiative\_transfer.cpp}: função
+  \texttt{emissivity\_collapsar\_ring} e soma de $I_{\rm obs}$.
+  \item \texttt{include/radiative\_transfer.hpp}: define
+  \texttt{UHECircularSourceParams}.
+  \item \texttt{apps/compute\_kerr\_image\_from\_cache.cpp}: lê os
+  parâmetros da fonte a partir dos argumentos vindos do \texttt{Makefile}.
+\end{itemize}
+
+\section{Canal térmico MeV, opacidades e leakage}
+
+Além do canal UHE vindo do anel central, o código integra um canal térmico
+MeV associado ao toro quente. Esse canal usa a mesma geodésica de Kerr, mas
+outras emissividades e opacidades. A energia observada padrão é
+\texttt{MEV\_ENU} em MeV.
+
+A forma espectral local é aproximada por uma distribuição de Fermi-Dirac sem
+potencial químico explícito:
+
+\begin{equation}
+  f_E(E,T) = \frac{E^2}{\exp(E/T)+1}.
+\end{equation}
+
+A emissividade térmica implementada é uma parametrização local:
+
+\begin{equation}
+  j_{\rm MeV} =
+  C_{\rm MeV}
+  \left[
+  n_b X_{\rm cc} T^6
+  + 0.05\,n_b T^9
+  \right]
+  f_E(E_{\nu,\rm local},T),
+\end{equation}
+
+onde
+
+\begin{equation}
+  X_{\rm cc} = (1-Y_e)+\frac{1}{2}Y_e.
+\end{equation}
+
+O primeiro termo representa emissão tipo captura carregada em núcleons; o
+segundo é um termo fenomenológico tipo pares, útil para manter uma fonte
+térmica sensível a temperaturas altas. A normalização $C_{\rm MeV}$ é
+\texttt{MEV\_NORM}.
+
+A opacidade de absorção efetiva é
+
+\begin{equation}
+  \kappa_{\rm abs} =
+  n_b\,\sigma_{\rm abs,0}
+  \left(\frac{E_{\nu,\rm local}}{\rm MeV}\right)^2
+  \left[(1-Y_e)+\frac{1}{4}Y_e\right],
+\end{equation}
+
+com $\sigma_{\rm abs,0}=9.6\times10^{-44}\,{\rm cm^2}$. A opacidade de
+espalhamento elástico em núcleons é
+
+\begin{equation}
+  \kappa_{\rm sca} =
+  n_b\,\sigma_{\rm sca,0}
+  \left(\frac{E_{\nu,\rm local}}{\rm MeV}\right)^2
+  \left(1+\frac{1}{2}Y_e\right),
+\end{equation}
+
+com $\sigma_{\rm sca,0}=1.7\times10^{-44}\,{\rm cm^2}$. A profundidade óptica
+MeV é
+
+\begin{equation}
+  \tau_{\rm MeV} =
+  \int (\kappa_{\rm abs}+\kappa_{\rm sca})\,dl.
+\end{equation}
+
+Para representar aprisionamento difusivo sem resolver transporte de Boltzmann,
+o código usa um fator leakage local,
+
+\begin{equation}
+  \Lambda(\tau_{\rm MeV}) =
+  \frac{1}{1+\tau_{\rm MeV}^2},
+\end{equation}
+
+e acumula a intensidade térmica como
+
+\begin{equation}
+  I_{\rm MeV,obs} =
+  \sum_k
+  g_k^3\,
+  j_{{\rm MeV},k}\,
+  \Lambda_k\,
+  e^{-\tau_{{\rm MeV},k}}\,
+  \Delta l_{{\rm cm},k}.
+\end{equation}
+
+A neutrinosfera é estimada no primeiro ponto do raio, visto a partir do
+observador para dentro, onde
+
+\begin{equation}
+  \tau_{\rm MeV} \geq \frac{2}{3}.
+\end{equation}
+
+\subsection*{Onde está no programa}
+
+\begin{itemize}
+  \item \texttt{src/radiative\_transfer.cpp}: funções
+  \texttt{emissivity\_mev\_thermal},
+  \texttt{opacity\_mev\_absorption\_cm\_inv},
+  \texttt{opacity\_mev\_scattering\_cm\_inv} e acumulação de
+  $I_{\rm MeV,obs}$.
+  \item \texttt{include/radiative\_transfer.hpp}: define
+  \texttt{MeVThermalParams} e os campos MeV de \texttt{RTResult}.
+  \item \texttt{src/torus\_profile.cpp}: fornece $\rho$, $T$ e $Y_e$.
+  \item \texttt{apps/compute\_kerr\_image\_from\_cache.cpp}: escreve as
+  colunas MeV no arquivo de imagem.
+\end{itemize}
+
+\section{Arquivos de saída}
+
+\subsection{Cache de geodésicas}
+
+O arquivo binário
+
+\begin{equation}
+  \texttt{output/rays/kerr\_geodesics.bin}
+\end{equation}
+
+contém uma assinatura \texttt{KGEO}, versão, tamanho da câmera, spin usado e
+os raios de cada pixel. Para cada raio, salva:
+
+\begin{itemize}
+  \item índice do pixel;
+  \item coordenadas de câmera \texttt{alpha\_rg} e \texttt{beta\_rg};
+  \item flag de captura;
+  \item lista de pontos \texttt{PathPoint}.
+\end{itemize}
+
+\subsection{Imagem de neutrinos}
+
+A saída de imagem é texto ASCII:
+
+\begin{equation}
+  \texttt{output/images/kerr\_image\_Enu\_<energia>.dat}.
+\end{equation}
+
+As colunas são:
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Coluna & Significado\\
+\midrule
+\texttt{i}, \texttt{j} & pixel da câmera\\
+\texttt{alpha}, \texttt{beta} & coordenadas angulares do pixel\\
+\texttt{tau\_uhe} & profundidade óptica DIS UHE integrada\\
+\texttt{P\_surv\_uhe} & probabilidade UHE de sobrevivência $e^{-\tau}$\\
+\texttt{I\_obs\_uhe} & intensidade UHE observada acumulada\\
+\texttt{captured} & indica se o raio caiu no horizonte\\
+\texttt{tau\_mev} & profundidade óptica térmica MeV\\
+\texttt{P\_surv\_mev} & probabilidade MeV de sobrevivência\\
+\texttt{I\_obs\_mev} & intensidade térmica MeV observada\\
+\texttt{r\_neutrinosphere\_rg} & raio onde $\tau_{\rm MeV}\geq2/3$, ou -1\\
+\texttt{leakage\_mev} & leakage médio ponderado pela emissividade\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Uso do programa pelo Makefile}
+
+Os parâmetros principais ficam no começo do \texttt{Makefile} e podem ser
+alterados na linha de comando. O alvo padrão é:
+
+\begin{verbatim}
+make
+\end{verbatim}
+
+equivalente a:
+
+\begin{verbatim}
+make kerr-criar-cache
+\end{verbatim}
+
+\subsection{Rodar a imagem Kerr completa}
+
+\begin{verbatim}
+make kerr-criar-cache
+\end{verbatim}
+
+Esse comando:
+
+\begin{enumerate}
+  \item cria diretórios de saída;
+  \item compila os executáveis necessários;
+  \item gera o cache de geodésicas;
+  \item calcula a imagem UHE para \texttt{ENU} e o canal térmico para
+  \texttt{MEV\_ENU};
+  \item roda \texttt{scripts/plot\_kerr\_image.py}.
+\end{enumerate}
+
+Exemplo com energia, spin e resolução:
+
+\begin{verbatim}
+make kerr-criar-cache ENU=1e10 ASPIN=0.9 CAM_NX=200 CAM_NY=200
+\end{verbatim}
+
+\subsection{Gerar somente o cache de geodésicas}
+
+\begin{verbatim}
+make kerr-geodesics ASPIN=0.9 CAM_NX=100 CAM_NY=100
+\end{verbatim}
+
+Use esse alvo quando a geometria da câmera mudou. O cache depende de
+\texttt{ASPIN}, \texttt{CAM\_R\_OBS\_RG}, \texttt{CAM\_THETA\_DEG},
+\texttt{CAM\_FOV\_DEG}, \texttt{CAM\_NX}, \texttt{CAM\_NY},
+\texttt{CAM\_R\_MAX\_RG} e \texttt{CAM\_STEP}.
+
+\subsection{Reusar o cache para outra energia}
+
+\begin{verbatim}
+make image-from-cache ENU=1e12
+\end{verbatim}
+
+Use esse alvo quando a câmera e o spin não mudaram, mas a energia ou os
+parâmetros do toro/fonte mudaram. Isso evita recalcular as geodésicas.
+
+\subsection{Plotar uma imagem já calculada}
+
+\begin{verbatim}
+make plot-kerr-image ENU=1e9
+\end{verbatim}
+
+Esse alvo chama:
+
+\begin{verbatim}
+python3 scripts/plot_kerr_image.py 1e9
+\end{verbatim}
+
+\subsection{Visualizar o toro}
+
+\begin{verbatim}
+make plot-torus
+\end{verbatim}
+
+Esse alvo gera a grade do toro e chama o script de visualização.
+
+\subsection{Teste de profundidade óptica em raio reto}
+
+\begin{verbatim}
+make tau-straight ENU=1e9
+\end{verbatim}
+
+Esse fluxo usa a aproximação auxiliar de raios retos em
+\texttt{src/optical\_depth.cpp}.
+
+\subsection{Testes}
+
+\begin{verbatim}
+make tests
+\end{verbatim}
+
+Atualmente o alvo compila e roda o teste da métrica de Kerr.
+
+\subsection{Limpeza}
+
+\begin{verbatim}
+make clean-build
+make clean-output
+make clean
+\end{verbatim}
+
+\section{Parâmetros principais do Makefile}
+
+\begin{longtable}{llp{7.3cm}}
+\toprule
+Parâmetro & Padrão & Significado\\
+\midrule
+\endhead
+\texttt{ENU} & \texttt{1e9} & Energia observada do neutrino em GeV.\\
+\texttt{ASPIN} & \texttt{0.0001} & Spin adimensional do buraco negro.\\
+\texttt{MBH\_MSUN} & \texttt{3.0} & Massa do buraco negro em massas solares.\\
+\texttt{CAM\_R\_OBS\_RG} & \texttt{60.0} & Raio do observador em $r_g$.\\
+\texttt{CAM\_THETA\_DEG} & \texttt{72.0} & Inclinação polar do observador em graus.\\
+\texttt{CAM\_FOV\_DEG} & \texttt{20.0} & Campo de visão da câmera.\\
+\texttt{CAM\_NX}, \texttt{CAM\_NY} & \texttt{100}, \texttt{100} & Resolução da câmera.\\
+\texttt{CAM\_R\_MAX\_RG} & \texttt{120.0} & Raio externo para parar raios que escapam.\\
+\texttt{CAM\_STEP} & \texttt{0.001} & Passo base do integrador de geodésicas.\\
+\texttt{TORUS\_RHO0} & \texttt{1.0e-2} & Densidade central do toro em g cm$^{-3}$.\\
+\texttt{TORUS\_R0\_RG} & \texttt{10.0} & Raio central do toro em $r_g$.\\
+\texttt{TORUS\_SIGMA\_RG} & \texttt{5.0} & Largura radial gaussiana do toro.\\
+\texttt{TORUS\_H\_OVER\_R} & \texttt{0.25} & Espessura angular vertical aproximada.\\
+\texttt{SOURCE\_R\_RG} & \texttt{3.5} & Raio central da fonte circular UHE.\\
+\texttt{SOURCE\_SIGMA\_RG} & \texttt{1.0} & Largura radial da fonte.\\
+\texttt{SOURCE\_THETA\_DEG} & \texttt{15.0} & Espessura angular da fonte em graus.\\
+\texttt{SOURCE\_POWERLAW} & \texttt{2.0} & Índice espectral $p$ em $E^{-p}$.\\
+\texttt{SOURCE\_EMAX\_GEV} & \texttt{1.0e12} & Energia de corte exponencial.\\
+\texttt{SOURCE\_NORM} & \texttt{1.0} & Normalização arbitrária da emissividade.\\
+\texttt{MEV\_ENU} & \texttt{10.0} & Energia observada do canal térmico MeV.\\
+\texttt{MEV\_NORM} & \texttt{1.0} & Normalização arbitrária da emissividade MeV.\\
+\texttt{OMP\_NUM\_THREADS} & \texttt{6} & Número de threads OpenMP.\\
+\bottomrule
+\end{longtable}
+
+\section{Mapa rápido: teoria, código e comandos}
+
+\begingroup
+\small
+\begin{longtable}{p{3.2cm}p{6.2cm}p{4.8cm}}
+\toprule
+Parte física & Arquivo/função principal & Como executar\\
+\midrule
+\endhead
+Métrica de Kerr &
+\texttt{src/kerr\_metric.cpp}, classe \texttt{KerrMetric} &
+\texttt{make tests}\\
+Geodésicas nulas &
+\texttt{src/kerr\_geodesic.cpp}, \texttt{rhs}, \texttt{step\_adaptive} &
+\texttt{make kerr-geodesics}\\
+Câmera relativística &
+\texttt{src/kerr\_camera.cpp}, \texttt{initial\_state}, \texttt{trace\_pixel} &
+\texttt{make kerr-rays} ou \texttt{make kerr-geodesics}\\
+Toro do collapsar &
+\texttt{src/torus\_profile.cpp}, \texttt{rho}, \texttt{Ye}, \texttt{temperature\_MeV} &
+\texttt{make plot-torus}\\
+Seção de choque DIS &
+\texttt{src/sigma\_table.cpp}, \texttt{sigma\_cm2} &
+Usado por \texttt{make image-from-cache}\\
+Profundidade óptica &
+\texttt{src/radiative\_transfer.cpp}, \texttt{integrate\_kerr\_ray} &
+\texttt{make image-from-cache ENU=...}\\
+Emissividade UHE &
+\texttt{src/radiative\_transfer.cpp}, \texttt{emissivity\_collapsar\_ring} &
+\texttt{make image-from-cache SOURCE\_R\_RG=...}\\
+Canal térmico MeV &
+\texttt{src/radiative\_transfer.cpp}, \texttt{emissivity\_mev\_thermal},
+\texttt{opacity\_mev\_*} &
+\texttt{make image-from-cache MEV\_ENU=10}\\
+Imagem final &
+\texttt{apps/compute\_kerr\_image\_from\_cache.cpp} &
+\texttt{make kerr-criar-cache}\\
+\bottomrule
+\end{longtable}
+\endgroup
+
+\section{Observações e limitações do modelo atual}
+
+\begin{itemize}
+  \item O fluxo Schwarzschild foi desativado no \texttt{Makefile}; o projeto
+  atual usa Kerr como caminho principal.
+  \item O redshift armazenado na câmera é uma aproximação escalar inspirada
+  no fator de Schwarzschild, embora os raios sejam propagados na métrica de
+  Kerr.
+  \item O toro é paramétrico, não uma solução hidrodinâmica autoconsistente.
+  \item A seção de choque DIS é tabelada; fora do intervalo da tabela, a
+  contribuição é ignorada na transferência radiativa principal.
+  \item O canal MeV é uma aproximação física local, sem tabela microfísica e
+  sem resolver transporte multi-flavor de Boltzmann; as constantes são
+  parametrizações de ordem de grandeza.
+  \item A normalização da emissividade é arbitrária; as imagens são mais
+  diretamente interpretáveis em termos relativos, contraste e morfologia.
+\end{itemize}
+
+\begin{thebibliography}{9}
+
+\bibitem{MacFadyenWoosley1999}
+A.~I. MacFadyen and S.~E. Woosley,
+``Collapsars: Gamma-Ray Bursts and Explosions in `Failed Supernovae',''
+\emph{The Astrophysical Journal} \textbf{524}, 262--289 (1999).
+doi: \href{https://doi.org/10.1086/307790}{10.1086/307790}.
+
+\bibitem{MacFadyenWoosley1999Web}
+A.~I. MacFadyen,
+``Accretion disk density structure at 7.6 s,''
+collapsar simulation figure accompanying MacFadyen and Woosley (1999).
+\url{https://www.ucolick.org/~andrew/collapsar/fig8.html}.
+
+\bibitem{LiuGuZhang2017}
+T.~Liu, W.-M. Gu and B.~Zhang,
+``Neutrino-dominated accretion flows as the central engine of gamma-ray bursts,''
+\emph{New Astronomy Reviews} \textbf{79}, 1--25 (2017).
+doi: \href{https://doi.org/10.1016/j.newar.2017.07.001}
+{10.1016/j.newar.2017.07.001}.
+
+\bibitem{ZenatiSiegelMetzger2020}
+Y.~Zenati, D.~M. Siegel, B.~D. Metzger and H.~B. Perets,
+``Nuclear burning in collapsar accretion discs,''
+\emph{Monthly Notices of the Royal Astronomical Society}
+\textbf{499}, 4097--4113 (2020).
+doi: \href{https://doi.org/10.1093/mnras/staa3002}
+{10.1093/mnras/staa3002}.
+
+\bibitem{SheLiuXue2022}
+J.-Z. She, T.~Liu and L.~Xue,
+``Relativistic global solutions of neutrino-dominated accretion flows with
+magnetic coupling,''
+\emph{Monthly Notices of the Royal Astronomical Society}
+\textbf{513}, 3960--3970 (2022).
+doi: \href{https://doi.org/10.1093/mnras/stac1154}
+{10.1093/mnras/stac1154}.
+
+\end{thebibliography}
+
+\end{document}
