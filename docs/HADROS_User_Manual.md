@@ -270,6 +270,55 @@ The spatial interval `dl_rg` is estimated from the spatial Boyer-Lindquist
 metric components at the midpoint between consecutive stored points. This
 stored path is later reused by the opacity and radiative-transfer routines.
 
+Concretely, for two consecutive states `previous` and `current`, HADROS first
+defines the midpoint
+
+```text
+r_mid     = 0.5 (r_current + r_previous)
+theta_mid = 0.5 (theta_current + theta_previous)
+```
+
+and evaluates the Kerr metric at `(r_mid, theta_mid)`. Then it computes
+
+```text
+dr     = r_current     - r_previous
+dtheta = theta_current - theta_previous
+dphi   = wrapped(phi_current - phi_previous)
+```
+
+where `wrapped` maps the azimuthal difference into the interval `[-pi, pi]` so
+that a ray crossing `phi = pi` does not produce an artificial jump of nearly
+`2 pi`.
+
+The stored spatial step is then
+
+```text
+dl_rg = sqrt(max(dl2, 0))
+
+dl2 = g_rr(r_mid,theta_mid) dr^2
+    + g_thetatheta(r_mid,theta_mid) dtheta^2
+    + g_phiphi(r_mid,theta_mid) dphi^2
+```
+
+In code notation this is exactly:
+
+```text
+dl2 = g[1][1] * dr * dr
+    + g[2][2] * dtheta * dtheta
+    + g[3][3] * dphi * dphi
+```
+
+This `dl_rg` is a local spatial distance in units of `r_g`. Later, opacity
+routines convert it to centimeters using the black-hole mass:
+
+```text
+dl_cm = dl_rg * r_g
+```
+
+This is not the affine-parameter step `dlambda`. It is the local spatial path
+length used to approximate column-density integrals such as
+`integral n_b sigma ds`.
+
 ### 2.2 Semi-analytic density backgrounds
 
 The matter field is a controlled semi-analytic background, not a hydrodynamic

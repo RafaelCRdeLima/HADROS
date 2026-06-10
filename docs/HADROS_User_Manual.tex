@@ -268,6 +268,44 @@ where $dl$ is estimated from the spatial Boyer-Lindquist metric components at
 the midpoint between consecutive stored points. The resulting ray cache is then
 reused by the opacity and radiative-transfer routines.
 
+More explicitly, for two consecutive states, ``previous'' and ``current'', the
+code defines
+\[
+r_{\rm mid}=\frac{1}{2}(r_{\rm current}+r_{\rm previous}),\qquad
+\theta_{\rm mid}=\frac{1}{2}(\theta_{\rm current}+\theta_{\rm previous}),
+\]
+and evaluates the metric at $(r_{\rm mid},\theta_{\rm mid})$. It then computes
+\[
+dr=r_{\rm current}-r_{\rm previous},\qquad
+d\theta=\theta_{\rm current}-\theta_{\rm previous},
+\]
+\[
+d\phi=\mathrm{wrapped}(\phi_{\rm current}-\phi_{\rm previous}),
+\]
+where the wrapping maps $d\phi$ into $[-\pi,\pi]$ to avoid an artificial jump
+when a ray crosses the azimuthal branch cut. The stored spatial step is
+\[
+dl_{\rm rg}=\sqrt{\max(dl^2,0)}
+\]
+with
+\[
+dl^2 =
+g_{rr}(r_{\rm mid},\theta_{\rm mid})\,dr^2
++g_{\theta\theta}(r_{\rm mid},\theta_{\rm mid})\,d\theta^2
++g_{\phi\phi}(r_{\rm mid},\theta_{\rm mid})\,d\phi^2.
+\]
+In the code this is exactly the expression
+\[
+dl^2 = g[1][1]\,dr^2+g[2][2]\,d\theta^2+g[3][3]\,d\phi^2.
+\]
+This $dl_{\rm rg}$ is a local spatial path length in units of $r_g$, not the
+affine-parameter increment $d\lambda$. Opacity routines later convert it to
+centimeters through
+\[
+dl_{\rm cm}=dl_{\rm rg}\,r_g,
+\]
+and use it in column-density integrals such as $\int n_b\sigma\,ds$.
+
 \subsection{Semi-analytic Density Backgrounds}
 
 The matter field is a controlled semi-analytic background, not a hydrodynamic
