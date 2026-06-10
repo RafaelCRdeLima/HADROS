@@ -87,6 +87,189 @@ the shadow samples more direct paths through the torus and funnel. HADROS uses
 this mapping to ask: along this path, how much matter did the neutrino cross,
 and how much emission accumulated before attenuation?
 
+#### 2.1.1 Equations actually solved by HADROS
+
+The Kerr module is implemented in:
+
+```text
+include/kerr_metric.hpp
+src/kerr_metric.cpp
+include/kerr_geodesic.hpp
+src/kerr_geodesic.cpp
+include/kerr_camera.hpp
+src/kerr_camera.cpp
+```
+
+The metric is the Kerr metric in Boyer-Lindquist coordinates
+`(t, r, theta, phi)` with signature `(-,+,+,+)` and dimensionless units
+`G = M = c = 1`. The code defines
+
+```text
+Sigma = r^2 + a^2 cos^2(theta)
+Delta = r^2 - 2 r + a^2
+A = (r^2 + a^2)^2 - a^2 Delta sin^2(theta)
+```
+
+The nonzero covariant metric components used by HADROS are:
+
+```text
+g_tt       = -(1 - 2 r / Sigma)
+g_tphi     = -2 a r sin^2(theta) / Sigma
+g_rr       = Sigma / Delta
+g_thetatheta = Sigma
+g_phiphi   = [r^2 + a^2 + 2 a^2 r sin^2(theta)/Sigma] sin^2(theta)
+```
+
+The inverse metric used by the Hamiltonian system is:
+
+```text
+g^tt     = -A / (Sigma Delta)
+g^tphi   = -2 a r / (Sigma Delta)
+g^rr     = Delta / Sigma
+g^thetatheta = 1 / Sigma
+g^phiphi = (Delta - a^2 sin^2(theta)) /
+           (Sigma Delta sin^2(theta))
+```
+
+Null geodesics are integrated in Hamiltonian form. The state vector is
+
+```text
+y = (t, r, theta, phi, p_t, p_r, p_theta, p_phi)
+```
+
+where the momenta are covariant momenta. The Hamiltonian is
+
+```text
+H = 1/2 g^{mu nu} p_mu p_nu
+```
+
+and a null ray should satisfy `H = 0` up to numerical error. The canonical
+equations used in the code are:
+
+```text
+dx^mu / dlambda = partial H / partial p_mu
+                 = g^{mu nu} p_nu
+
+dp_mu / dlambda = - partial H / partial x^mu
+                 = -1/2 partial_mu(g^{alpha beta}) p_alpha p_beta
+```
+
+Because the Kerr metric is stationary and axisymmetric, the code sets
+
+```text
+dp_t / dlambda = 0
+dp_phi / dlambda = 0
+```
+
+and evolves only `p_r` and `p_theta` through metric derivatives. In the current
+implementation, derivatives of the inverse metric are computed by centered
+finite differences:
+
+```text
+partial_r g^{mu nu} approx
+  [g^{mu nu}(r + eps, theta) - g^{mu nu}(r - eps, theta)] / (2 eps)
+
+partial_theta g^{mu nu} approx
+  [g^{mu nu}(r, theta + eps) - g^{mu nu}(r, theta - eps)] / (2 eps)
+```
+
+with `eps = 1e-5 max(1, |r|)` for the radial derivative and `eps = 1e-5` for
+the angular derivative.
+
+The camera initializes each pixel using a local ZAMO/LNRF-like tetrad
+approximation at the observer. Pixel coordinates are converted to angular
+camera coordinates
+
+```text
+u = [2(i+0.5)/Nx - 1] tan(FOV/2)
+v = [2(j+0.5)/Ny - 1] tan(FOV/2)
+norm = sqrt(1 + u^2 + v^2)
+```
+
+and the local backward ray direction is
+
+```text
+n_r     = -1 / norm
+n_theta =  v / norm
+n_phi   =  u / norm
+```
+
+This local direction is converted into Boyer-Lindquist contravariant momentum
+components using the ZAMO lapse `alpha`, frame-dragging angular velocity
+`omega`, and spatial metric components:
+
+```text
+p^t     = 1 / alpha
+p^r     = n_r / sqrt(g_rr)
+p^theta = n_theta / sqrt(g_thetatheta)
+p^phi   = n_phi / sqrt(g_phiphi) + omega p^t
+```
+
+Then the code lowers the index with `p_mu = g_mu nu p^nu` and integrates the
+Hamiltonian system.
+
+#### 2.1.2 Numerical integration method
+
+The production geodesic stepper is an adaptive Runge-Kutta-Fehlberg 4(5)
+method. In the code this is `KerrGeodesic::step_adaptive`. It computes both a
+fourth-order estimate `y4` and a fifth-order estimate `y5` using the classic
+Fehlberg coefficients:
+
+```text
+k1 = f(y)
+k2 = f(y + h k1/4)
+k3 = f(y + h[3 k1/32 + 9 k2/32])
+k4 = f(y + h[1932 k1/2197 - 7200 k2/2197 + 7296 k3/2197])
+k5 = f(y + h[439 k1/216 - 8 k2 + 3680 k3/513 - 845 k4/4104])
+k6 = f(y + h[-8 k1/27 + 2 k2 - 3544 k3/2565
+              + 1859 k4/4104 - 11 k5/40])
+```
+
+The local error estimate is the maximum absolute difference between selected
+components of `y4` and `y5`:
+
+```text
+err = max(|r4-r5|, |theta4-theta5|, |phi4-phi5|,
+          |pr4-pr5|, |ptheta4-ptheta5|, |pphi4-pphi5|)
+```
+
+If `err < tolerance`, the fifth-order estimate is accepted. If the error is too
+large, the step is retried with a smaller step size. The update factor is
+
+```text
+factor = 0.8 [tolerance / max(err, 1e-30)]^(1/4)
+```
+
+clamped between `0.1` and `5.0`. The minimum internal step is `h_min = 1e-5 h`.
+If the adaptive routine fails after 50 attempts, the code falls back to a fixed
+fourth-order Runge-Kutta step, `step_rk4`.
+
+The ray stops when either:
+
+```text
+r <= r_horizon + 1e-3
+```
+
+in which case it is marked as captured, or
+
+```text
+r >= r_max
+```
+
+after the initial transient, in which case the ray is considered to have left
+the computational domain. A hard limit of `200000` steps prevents accidental
+infinite integrations.
+
+For each accepted path point, HADROS stores:
+
+```text
+r_rg, theta, x_rg, y_rg, z_rg, dl_rg, redshift_factor
+```
+
+The spatial interval `dl_rg` is estimated from the spatial Boyer-Lindquist
+metric components at the midpoint between consecutive stored points. This
+stored path is later reused by the opacity and radiative-transfer routines.
+
 ### 2.2 Semi-analytic density backgrounds
 
 The matter field is a controlled semi-analytic background, not a hydrodynamic

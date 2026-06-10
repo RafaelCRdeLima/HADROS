@@ -104,6 +104,170 @@ the environment. Pixels near the shadow correspond to rays that pass close to
 the horizon or are captured; pixels away from the shadow sample more direct
 paths through the torus and funnel.
 
+\subsubsection{Equations actually solved by HADROS}
+
+The Kerr module is implemented in \texttt{src/kerr\_metric.cpp},
+\texttt{src/kerr\_geodesic.cpp}, and \texttt{src/kerr\_camera.cpp}. It uses
+Boyer-Lindquist coordinates $(t,r,\theta,\phi)$ with signature $(-,+,+,+)$ and
+dimensionless units $G=M=c=1$. The code defines
+\[
+\Sigma = r^2+a^2\cos^2\theta,\qquad
+\Delta = r^2-2r+a^2,
+\]
+\[
+A=(r^2+a^2)^2-a^2\Delta\sin^2\theta.
+\]
+The nonzero covariant metric components are
+\[
+g_{tt}= -\left(1-\frac{2r}{\Sigma}\right),\qquad
+g_{t\phi}= -\frac{2ar\sin^2\theta}{\Sigma},
+\]
+\[
+g_{rr}=\frac{\Sigma}{\Delta},\qquad
+g_{\theta\theta}=\Sigma,
+\]
+\[
+g_{\phi\phi}=
+\left(r^2+a^2+\frac{2a^2r\sin^2\theta}{\Sigma}\right)\sin^2\theta.
+\]
+The inverse metric used by the geodesic Hamiltonian is
+\[
+g^{tt}= -\frac{A}{\Sigma\Delta},\qquad
+g^{t\phi}= -\frac{2ar}{\Sigma\Delta},
+\]
+\[
+g^{rr}= \frac{\Delta}{\Sigma},\qquad
+g^{\theta\theta}=\frac{1}{\Sigma},
+\]
+\[
+g^{\phi\phi}=
+\frac{\Delta-a^2\sin^2\theta}{\Sigma\Delta\sin^2\theta}.
+\]
+
+Null geodesics are evolved in Hamiltonian form. The state vector is
+\[
+y=(t,r,\theta,\phi,p_t,p_r,p_\theta,p_\phi),
+\]
+where the momenta are covariant. The Hamiltonian is
+\[
+H=\frac{1}{2}g^{\mu\nu}p_\mu p_\nu,
+\]
+and a null ray satisfies $H=0$ up to numerical error. The canonical equations
+implemented in the code are
+\[
+\frac{dx^\mu}{d\lambda}=\frac{\partial H}{\partial p_\mu}
+=g^{\mu\nu}p_\nu,
+\]
+\[
+\frac{dp_\mu}{d\lambda}=-\frac{\partial H}{\partial x^\mu}
+=-\frac{1}{2}\partial_\mu g^{\alpha\beta}p_\alpha p_\beta.
+\]
+Stationarity and axisymmetry imply
+\[
+\frac{dp_t}{d\lambda}=0,\qquad
+\frac{dp_\phi}{d\lambda}=0,
+\]
+so the code evolves $p_r$ and $p_\theta$ using derivatives of the inverse
+metric. These derivatives are computed by centered finite differences:
+\[
+\partial_r g^{\mu\nu}\simeq
+\frac{g^{\mu\nu}(r+\epsilon,\theta)-g^{\mu\nu}(r-\epsilon,\theta)}
+{2\epsilon},
+\]
+\[
+\partial_\theta g^{\mu\nu}\simeq
+\frac{g^{\mu\nu}(r,\theta+\epsilon)-g^{\mu\nu}(r,\theta-\epsilon)}
+{2\epsilon}.
+\]
+The current code uses $\epsilon=10^{-5}\max(1,|r|)$ for the radial derivative
+and $\epsilon=10^{-5}$ for the angular derivative.
+
+The camera initializes each pixel in a local ZAMO/LNRF-like frame. Pixel
+coordinates are mapped to local angular camera coordinates
+\[
+u=\left[\frac{2(i+0.5)}{N_x}-1\right]\tan\frac{\mathrm{FOV}}{2},\qquad
+v=\left[\frac{2(j+0.5)}{N_y}-1\right]\tan\frac{\mathrm{FOV}}{2},
+\]
+\[
+\mathcal{N}=\sqrt{1+u^2+v^2}.
+\]
+The local backward ray direction is
+\[
+n_r=-\frac{1}{\mathcal{N}},\qquad
+n_\theta=\frac{v}{\mathcal{N}},\qquad
+n_\phi=\frac{u}{\mathcal{N}}.
+\]
+Using the lapse $\alpha$, frame-dragging angular velocity $\omega$, and
+spatial metric components, the code sets
+\[
+p^t=\frac{1}{\alpha},\qquad
+p^r=\frac{n_r}{\sqrt{g_{rr}}},\qquad
+p^\theta=\frac{n_\theta}{\sqrt{g_{\theta\theta}}},
+\]
+\[
+p^\phi=\frac{n_\phi}{\sqrt{g_{\phi\phi}}}+\omega p^t.
+\]
+It then lowers the index with $p_\mu=g_{\mu\nu}p^\nu$ before integration.
+
+\subsubsection{Numerical integration method}
+
+The production geodesic stepper is an adaptive Runge-Kutta-Fehlberg 4(5)
+method, implemented as \texttt{KerrGeodesic::step\_adaptive}. It computes both
+a fourth-order estimate $y_4$ and a fifth-order estimate $y_5$ using the
+classic Fehlberg stages:
+\[
+k_1=f(y),
+\]
+\[
+k_2=f\left(y+\frac{h}{4}k_1\right),
+\]
+\[
+k_3=f\left(y+h\left[\frac{3}{32}k_1+\frac{9}{32}k_2\right]\right),
+\]
+\[
+k_4=f\left(y+h\left[\frac{1932}{2197}k_1-\frac{7200}{2197}k_2
++\frac{7296}{2197}k_3\right]\right),
+\]
+\[
+k_5=f\left(y+h\left[\frac{439}{216}k_1-8k_2+\frac{3680}{513}k_3
+-\frac{845}{4104}k_4\right]\right),
+\]
+\[
+k_6=f\left(y+h\left[-\frac{8}{27}k_1+2k_2-\frac{3544}{2565}k_3
++\frac{1859}{4104}k_4-\frac{11}{40}k_5\right]\right).
+\]
+The error estimate is the maximum absolute difference between selected
+components of $y_4$ and $y_5$:
+\[
+\epsilon_{\rm err}=
+\max(|r_4-r_5|,|\theta_4-\theta_5|,|\phi_4-\phi_5|,
+|p_{r,4}-p_{r,5}|,|p_{\theta,4}-p_{\theta,5}|,
+|p_{\phi,4}-p_{\phi,5}|).
+\]
+If this error is below the tolerance, the fifth-order result is accepted. If
+not, the step is retried with a smaller step. The update factor is
+\[
+q=0.8\left[\frac{\mathrm{tolerance}}
+{\max(\epsilon_{\rm err},10^{-30})}\right]^{1/4},
+\]
+clamped between $0.1$ and $5.0$. The minimum internal step is
+$h_{\min}=10^{-5}h$. If the adaptive routine fails after 50 attempts, HADROS
+falls back to a fixed fourth-order Runge-Kutta step.
+
+A ray is marked as captured when
+\[
+r\le r_+ + 10^{-3}.
+\]
+It exits the computational domain when $r\ge r_{\max}$ after the initial
+transient. A hard cap of 200000 steps prevents accidental infinite
+integrations. For each stored path point, HADROS records
+\[
+(r,\theta,x,y,z,dl,\mathrm{redshift\ factor}),
+\]
+where $dl$ is estimated from the spatial Boyer-Lindquist metric components at
+the midpoint between consecutive stored points. The resulting ray cache is then
+reused by the opacity and radiative-transfer routines.
+
 \subsection{Semi-analytic Density Backgrounds}
 
 The matter field is a controlled semi-analytic background, not a hydrodynamic
